@@ -1,0 +1,4 @@
+# Runtime dependencies. Everything else deliberately uses the Python
+# standard library (urllib, sqlite3, xml.etree) to keep the engine free
+# of avoidable third-party code.
+PyYAML==6.0.3

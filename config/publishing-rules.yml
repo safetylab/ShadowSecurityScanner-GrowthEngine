@@ -1,0 +1,32 @@
+# Quality gate applied to every generated draft before it may leave the
+# drafts directory. A draft that fails any check is never published.
+
+quality_gate:
+  min_sources: 1
+  min_words: 120
+  max_words: 2500
+  require_cta: true
+  require_source_links: true
+  banned_phrases:
+    - best scanner in the world
+    - 100% detection
+    - guaranteed security
+    - undetectable
+    - better than all
+    - fully automated hacking
+    - bypass any protection
+  placeholder_markers:
+    - TODO
+    - TBD
+    - FIXME
+    - lorem ipsum
+    - XXX_PLACEHOLDER
+
+external_channels:
+  require_human_review: true
+  default_mode: draft_only
+  max_posts_per_day: 2
+
+attribution:
+  require_source_link: true
+  require_fetched_date: true

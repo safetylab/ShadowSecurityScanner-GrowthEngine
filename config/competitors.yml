@@ -1,0 +1,28 @@
+# Projects in the same space. Tracked to understand the landscape and to
+# learn from their documentation and release practice. Never used to
+# publish unverified comparative claims about them.
+
+projects:
+  - name: Nuclei
+    url: https://github.com/projectdiscovery/nuclei
+    feed: https://github.com/projectdiscovery/nuclei/releases.atom
+    category: template-based scanner
+  - name: OWASP ZAP
+    url: https://github.com/zaproxy/zaproxy
+    feed: https://github.com/zaproxy/zaproxy/releases.atom
+    category: web application scanner
+  - name: Trivy
+    url: https://github.com/aquasecurity/trivy
+    feed: https://github.com/aquasecurity/trivy/releases.atom
+    category: container and dependency scanner
+  - name: OpenVAS / Greenbone
+    url: https://github.com/greenbone/openvas-scanner
+    category: network vulnerability scanner
+  - name: Nmap
+    url: https://github.com/nmap/nmap
+    category: network discovery
+
+comparison_policy:
+  require_reproducible_evidence: true
+  require_version_and_date: true
+  allow_unverified_claims: false

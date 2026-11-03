@@ -1,0 +1,78 @@
+# Terms used to score how relevant a research item is to the project and
+# to classify it into a topic. Scoring is a transparent heuristic, not a
+# ranking model: see sge/relevance.py.
+
+primary:
+  - security scanner
+  - vulnerability scanner
+  - vulnerability scanning
+  - penetration testing
+  - web application security
+  - network scanning
+  - port scanning
+  - security audit
+  - cve
+  - exploit
+  - misconfiguration
+
+secondary:
+  - open source security
+  - devsecops
+  - sast
+  - dast
+  - attack surface
+  - threat detection
+  - security automation
+  - ci/cd security
+  - container security
+  - api security
+  - reconnaissance
+  - advisory
+  - patch
+  - hardening
+
+# Items matching these are usually off-topic for our audience even when
+# they come from a security source.
+negative:
+  - webinar
+  - job opening
+  - we are hiring
+  - press release
+  - conference registration
+  - award
+  - quarterly earnings
+
+topics:
+  advisories:
+    - advisory
+    - cve
+    - vulnerability
+    - patch
+    - exploit
+  tooling:
+    - scanner
+    - release
+    - version
+    - changelog
+    - plugin
+    - template
+  cloud_and_containers:
+    - kubernetes
+    - container
+    - docker
+    - cloud
+    - aws
+    - azure
+  appsec:
+    - web application
+    - api
+    - sast
+    - dast
+    - xss
+    - sql injection
+  operations:
+    - incident
+    - ransomware
+    - breach
+    - detection
+    - monitoring

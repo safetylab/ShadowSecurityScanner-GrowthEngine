@@ -1,0 +1,18 @@
+security:
+  require_authorized_targets: true
+  no_unauthorized_scanning: true
+  secrets_in_environment_only: true
+  never_commit_tokens: true
+
+publishing:
+  no_spam: true
+  no_fake_reviews: true
+  no_fake_stars: true
+  no_automated_comments: true
+  require_fact_checking: true
+  respect_platform_terms: true
+
+automation:
+  max_posts_per_day: 2
+  deduplicate_content: true
+  maintain_audit_log: true

@@ -1,0 +1,35 @@
+channels:
+  website:
+    enabled: true
+    mode: automatic
+
+  github:
+    enabled: true
+    mode: automatic
+    actions:
+      - release_notes
+      - documentation_updates
+
+  rss:
+    enabled: true
+    mode: automatic
+
+  telegram:
+    enabled: false
+    mode: manual
+
+  reddit:
+    enabled: true
+    mode: draft_only
+
+  hackernews:
+    enabled: true
+    mode: draft_only
+
+  linkedin:
+    enabled: true
+    mode: draft_only
+
+  x:
+    enabled: true
+    mode: draft_only

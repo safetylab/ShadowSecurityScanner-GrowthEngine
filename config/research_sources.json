@@ -1,0 +1,46 @@
+{
+  "sources": [
+    {
+      "name": "CISA Cybersecurity Advisories",
+      "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml",
+      "enabled": true,
+      "category": "advisories",
+      "note": "Multi-megabyte feed; relies on streaming parse with max_items."
+    },
+    {
+      "name": "PortSwigger Research",
+      "url": "https://portswigger.net/research/rss",
+      "enabled": true,
+      "category": "appsec_research"
+    },
+    {
+      "name": "Nuclei Releases",
+      "url": "https://github.com/projectdiscovery/nuclei/releases.atom",
+      "enabled": true,
+      "category": "ecosystem"
+    },
+    {
+      "name": "Trivy Releases",
+      "url": "https://github.com/aquasecurity/trivy/releases.atom",
+      "enabled": true,
+      "category": "ecosystem"
+    },
+    {
+      "name": "OWASP ZAP Releases",
+      "url": "https://github.com/zaproxy/zaproxy/releases.atom",
+      "enabled": true,
+      "category": "ecosystem"
+    },
+    {
+      "name": "ShadowSecurityScanner Releases",
+      "url": "https://github.com/safetylab/ShadowSecurityScanner/releases.atom",
+      "enabled": true,
+      "category": "own_project"
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 15,
+    "max_response_bytes": 12582912,
+    "max_items_per_feed": 30
+  }
+}

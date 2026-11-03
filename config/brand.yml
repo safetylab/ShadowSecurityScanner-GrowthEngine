@@ -1,0 +1,32 @@
+project:
+  name: ShadowSecurityScanner
+  growth_engine: Shadow Growth Engine
+  website: https://shadowsecurityscanner.com/
+  github: https://github.com/safetylab/ShadowSecurityScanner
+  growth_repository: https://github.com/safetylab/ShadowSecurityScanner-GrowthEngine
+
+brand:
+  language: en
+  secondary_languages:
+    - ru
+  tone:
+    - technical
+    - professional
+    - trustworthy
+
+goals:
+  github_stars: 10000
+  users: 100000
+  enterprise_customers: true
+  global_awareness: true
+
+budget:
+  monthly_usd: 0
+  paid_apis: false
+
+principles:
+  - ethical_security
+  - transparency
+  - open_source
+  - user_privacy
+  - factual_content

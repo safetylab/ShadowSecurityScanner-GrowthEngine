@@ -1,0 +1,41 @@
+# Secrets — never commit any of these.
+.env
+.env.*
+*.pem
+*.key
+*.p12
+secrets.yml
+secrets.yaml
+config/secrets*
+credentials.json
+token.json
+
+# Local state. The database holds collected data, not source of truth:
+# the schema lives in database/migrations/.
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Local runtime output.
+logs/
+analytics/reports/
+content/drafts/
+content/social/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
