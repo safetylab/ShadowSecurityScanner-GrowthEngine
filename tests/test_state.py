@@ -202,3 +202,26 @@ def test_empty_state_is_valid(temp_db):
     with db.session() as connection:
         assert state.import_state(connection, "") == (0, 0)
         assert state.import_state(connection, "\n\n") == (0, 0)
+
+
+def test_two_exports_of_unchanged_data_are_identical(temp_db):
+    """Otherwise the workflow commits an empty state change every run."""
+    with db.session() as connection:
+        insert_item(connection, 1)
+        connection.commit()
+
+        first, _ = state.export_state(connection)
+        second, _ = state.export_state(connection)
+
+    assert first == second
+
+
+def test_header_carries_no_timestamp(temp_db):
+    with db.session() as connection:
+        insert_item(connection, 1)
+        connection.commit()
+        text, _ = state.export_state(connection)
+
+    header = json.loads(text.splitlines()[0])
+
+    assert header == {"v": state.FORMAT_VERSION, "type": "meta", "items": 1}

@@ -6,8 +6,10 @@ instead: text that git stores as a readable delta, holding the keys that
 make a re-run idempotent but not the article bodies, which are only
 needed inside the run that collected them.
 
-Rows are written sorted by canonical link so that the file's diff stays
-small and stable between runs.
+Rows are written sorted by canonical link, and the file carries no
+timestamp of its own, so that two exports of unchanged data produce
+byte-identical output: the workflow can then skip the commit instead of
+adding an empty one to the state branch every run.
 """
 
 import datetime as dt
@@ -51,23 +53,22 @@ def export_state(connection, keep_days=DEFAULT_KEEP_DAYS):
 
     query += " ORDER BY canonical_link"
 
-    lines = [json.dumps({
-        "v": FORMAT_VERSION,
-        "type": "meta",
-        "exported_at": dt.datetime.now(dt.timezone.utc).isoformat(
-            timespec="seconds"
-        ),
-    }, ensure_ascii=False)]
-
-    count = 0
+    records = []
 
     for row in connection.execute(query, params):
         record = {"type": "research_item"}
         record.update({field: row[field] for field in ITEM_FIELDS})
-        lines.append(json.dumps(record, ensure_ascii=False, sort_keys=True))
-        count += 1
+        records.append(json.dumps(record, ensure_ascii=False, sort_keys=True))
 
-    return "\n".join(lines) + "\n", count
+    # The header deliberately holds no export time: a timestamp would
+    # change on every run and defeat the unchanged-state check.
+    header = json.dumps({
+        "v": FORMAT_VERSION,
+        "type": "meta",
+        "items": len(records),
+    }, ensure_ascii=False)
+
+    return "\n".join([header] + records) + "\n", len(records)
 
 
 def import_state(connection, text):
