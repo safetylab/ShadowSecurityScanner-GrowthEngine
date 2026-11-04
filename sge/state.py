@@ -137,6 +137,15 @@ def import_state(connection, text):
                 f"Line {number}: missing {', '.join(missing)}"
             )
 
+        try:
+            relevance = int(record.get("relevance") or 0)
+            excluded = int(record.get("excluded") or 0)
+        except (TypeError, ValueError) as error:
+            raise StateError(
+                f"Line {number}: relevance and excluded must be numbers: "
+                f"{error}"
+            ) from error
+
         cursor = connection.execute(
             """
             INSERT OR IGNORE INTO research_items
@@ -146,8 +155,7 @@ def import_state(connection, text):
             """,
             (record["source"], record["title"], record["link"],
              record["canonical_link"], record.get("published"),
-             record.get("topic"), int(record.get("relevance") or 0),
-             int(record.get("excluded") or 0),
+             record.get("topic"), relevance, excluded,
              record.get("fetched_at")
              or dt.datetime.now(dt.timezone.utc).strftime(
                  "%Y-%m-%d %H:%M:%S"),

@@ -180,11 +180,26 @@ def check_releases(releases, now, stale_days=RELEASE_STALE_DAYS):
     latest = releases[0]
     published = latest.get("published_at") or ""
 
-    if published:
-        import datetime as dt
+    import datetime as dt
 
+    if not published:
+        findings.append(_finding(
+            "low", "release_undated",
+            f"Latest release {latest.get('tag_name')} has no publication "
+            "date, so its age cannot be checked"
+        ))
+    else:
         try:
             when = dt.datetime.fromisoformat(published.replace("Z", "+00:00"))
+        except ValueError:
+            # Swallowing this would report a healthy release cadence for a
+            # release of unknown age: an error that understates the problem.
+            findings.append(_finding(
+                "low", "release_date_unreadable",
+                f"Latest release {latest.get('tag_name')} has an "
+                f"unreadable date {published!r}; its age was not checked"
+            ))
+        else:
             age = (now - when).days
 
             if age > stale_days:
@@ -193,8 +208,6 @@ def check_releases(releases, now, stale_days=RELEASE_STALE_DAYS):
                     f"Latest release {latest.get('tag_name')} is {age} "
                     f"days old"
                 ))
-        except ValueError:
-            pass
 
     without_notes = [
         release.get("tag_name", "?")

@@ -210,6 +210,34 @@ def load_sources():
 
         seen.add(name)
 
+        # These reach int() and an environment comparison at collection
+        # time; a typo here would otherwise surface as a crash mid-run.
+        floor = source.get("relevance_floor")
+        if floor is not None and not isinstance(floor, int):
+            raise ConfigError(f"{where}: relevance_floor must be an integer")
+
+        if floor is not None and not 0 <= floor <= 100:
+            raise ConfigError(f"{where}: relevance_floor must be 0..100")
+
+        topic = source.get("default_topic")
+        if topic is not None and not (isinstance(topic, str) and topic):
+            raise ConfigError(
+                f"{where}: default_topic must be a non-empty string"
+            )
+
+        environments = source.get("environments")
+        if environments is not None:
+            if not isinstance(environments, list) or not environments:
+                raise ConfigError(
+                    f"{where}: environments must be a non-empty list"
+                )
+
+            if not all(isinstance(env, str) and env
+                       for env in environments):
+                raise ConfigError(
+                    f"{where}: environments must be non-empty strings"
+                )
+
     return data
 
 

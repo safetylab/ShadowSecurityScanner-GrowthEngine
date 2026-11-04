@@ -7,7 +7,7 @@ import datetime as dt
 import json
 from urllib.parse import quote
 
-from . import net
+from . import net, text as text_util
 
 API = "https://hn.algolia.com/api/v1"
 ITEM_URL = "https://news.ycombinator.com/item?id="
@@ -64,6 +64,6 @@ def normalise(hit):
         "author": hit.get("author"),
         "excerpt": excerpt[:1000],
         "created_at_source": hit.get("created_at"),
-        "points": int(hit.get("points") or 0),
-        "comments": int(hit.get("num_comments") or 0),
+        "points": text_util.as_int(hit.get("points")),
+        "comments": text_util.as_int(hit.get("num_comments")),
     }

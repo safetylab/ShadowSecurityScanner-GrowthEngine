@@ -184,3 +184,40 @@ def test_community_config_needs_at_least_one_query(monkeypatch, tmp_path):
 
     with pytest.raises(config.ConfigError, match="no queries"):
         config.load_community()
+
+
+@pytest.mark.parametrize("extra, message", [
+    ('"relevance_floor": "high"', "must be an integer"),
+    ('"relevance_floor": 500', "must be 0..100"),
+    ('"default_topic": ""', "non-empty string"),
+    ('"environments": "local"', "non-empty list"),
+    ('"environments": []', "non-empty list"),
+    ('"environments": [1]', "non-empty strings"),
+])
+def test_source_options_are_validated(monkeypatch, tmp_path, extra, message):
+    """A typo here would otherwise crash mid-collection."""
+    broken = tmp_path / "config"
+    broken.mkdir()
+    (broken / "research_sources.json").write_text(
+        '{"sources": [{"name": "x", "url": "https://x.test/f.xml",'
+        ' "enabled": true, ' + extra + '}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config.paths, "CONFIG_DIR", broken)
+
+    with pytest.raises(config.ConfigError, match=message):
+        config.load_sources()
+
+
+def test_valid_source_options_are_accepted(monkeypatch, tmp_path):
+    good = tmp_path / "config"
+    good.mkdir()
+    (good / "research_sources.json").write_text(
+        '{"sources": [{"name": "x", "url": "https://x.test/f.xml",'
+        ' "enabled": true, "relevance_floor": 20,'
+        ' "default_topic": "tooling", "environments": ["local"]}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config.paths, "CONFIG_DIR", good)
+
+    assert config.load_sources()["sources"][0]["relevance_floor"] == 20

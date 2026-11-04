@@ -33,3 +33,17 @@ def plain(text, limit=None):
         return collapsed[:limit].rsplit(" ", 1)[0] + "…"
 
     return collapsed
+
+
+def as_int(value, default=0):
+    """Integer from untrusted data, falling back instead of raising.
+
+    Public APIs do change shape. int("many") raises, which would end a
+    whole scan over a comment count, so a value that will not convert
+    becomes the default. This is only for metadata where a wrong number
+    is cosmetic — never for anything a decision is made on.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default

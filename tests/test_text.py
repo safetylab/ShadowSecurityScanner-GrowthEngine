@@ -45,3 +45,17 @@ def test_the_limit_cuts_on_a_word_boundary():
 
 def test_text_under_the_limit_is_unchanged():
     assert text.plain("short", limit=100) == "short"
+
+
+def test_as_int_converts_what_it_can():
+    assert text.as_int("5") == 5
+    assert text.as_int(5) == 5
+    assert text.as_int(3.7) == 3
+
+
+def test_as_int_falls_back_instead_of_raising():
+    """int("many") would end a whole scan over a comment count."""
+    for value in ("many", None, "", [], {}, "1.5"):
+        assert text.as_int(value) == 0
+
+    assert text.as_int("nonsense", 7) == 7

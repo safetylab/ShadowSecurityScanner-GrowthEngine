@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from sge import (community, config, db, github, hackernews,  # noqa: E402
-                 paths, urls)
+                 paths, text as text_util, urls)
 from sge.logging_setup import get_logger  # noqa: E402
 
 AGENT = "community"
@@ -99,8 +99,9 @@ def _github_thread(item):
         "author": (item.get("user") or {}).get("login"),
         "excerpt": (item.get("body") or "")[:1000],
         "created_at_source": item.get("created_at"),
-        "points": int(item.get("reactions", {}).get("total_count") or 0),
-        "comments": int(item.get("comments") or 0),
+        "points": text_util.as_int(
+            (item.get("reactions") or {}).get("total_count")),
+        "comments": text_util.as_int(item.get("comments")),
     }
 
 

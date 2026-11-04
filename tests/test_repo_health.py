@@ -191,3 +191,28 @@ def test_unanswered_old_issues_are_reported():
 
 def test_no_issues_is_not_a_finding():
     assert repo_health.check_issue_response([], NOW) == []
+
+
+def test_an_unreadable_release_date_is_reported_not_ignored():
+    """Swallowing it would report a healthy cadence for a release of
+    unknown age — an error that understates the problem."""
+    releases = [{
+        "tag_name": "v1.0.0",
+        "published_at": "last Tuesday",
+        "body": "A real changelog entry describing what changed here.",
+    }]
+    findings = repo_health.check_releases(releases, NOW)
+
+    assert "release_date_unreadable" in codes(findings)
+    assert "last Tuesday" in findings[0]["message"]
+
+
+def test_a_release_with_no_date_is_reported():
+    releases = [{
+        "tag_name": "v1.0.0",
+        "published_at": "",
+        "body": "A real changelog entry describing what changed here.",
+    }]
+
+    assert "release_undated" in codes(repo_health.check_releases(releases,
+                                                                 NOW))

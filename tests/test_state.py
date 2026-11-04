@@ -311,3 +311,17 @@ def test_the_header_declares_the_current_version(temp_db):
         text, _ = state.export_state(connection)
 
     assert json.loads(text.splitlines()[0])["v"] == state.FORMAT_VERSION
+
+
+def test_a_non_numeric_relevance_is_a_clear_error(temp_db):
+    """Not a ValueError from deep inside the insert."""
+    with db.session() as connection:
+        with pytest.raises(state.StateError, match="Line 2"):
+            state.import_state(
+                connection,
+                '{"v": 2, "type": "meta"}\n'
+                '{"type": "research_item", "source": "s", "title": "t",'
+                ' "link": "https://a.test/x",'
+                ' "canonical_link": "https://a.test/x",'
+                ' "relevance": "very"}\n',
+            )
