@@ -5,7 +5,7 @@
       "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml",
       "enabled": true,
       "category": "advisories",
-      "note": "Multi-megabyte feed; relies on streaming parse with max_items."
+      "note": "Multi-megabyte feed; relies on streaming parse with max_items. Answers HTTP 403 to GitHub Actions runners (datacentre IPs), so this source only collects from a local or residential network."
     },
     {
       "name": "PortSwigger Research",

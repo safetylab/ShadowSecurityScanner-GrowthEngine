@@ -114,3 +114,35 @@ def test_long_fields_are_truncated():
     entry = feeds.parse_bytes(document)[0]
 
     assert len(entry["title"]) == feeds.MAX_TITLE
+
+
+def test_escaped_entities_in_titles_are_decoded():
+    """Feeds escape their own markup; a title must not keep &nbsp;."""
+    document = (
+        b"<rss><channel><item>"
+        b"<title>The Fragile Lock:&amp;nbsp;Novel Bypasses &amp;amp; More"
+        b"</title>"
+        b"<link>https://example.test/x</link></item></channel></rss>"
+    )
+
+    entry = feeds.parse_bytes(document)[0]
+
+    assert entry["title"] == "The Fragile Lock: Novel Bypasses & More"
+
+
+def test_whitespace_in_titles_is_collapsed():
+    document = (
+        b"<rss><channel><item><title>  Spread\n   over   lines  </title>"
+        b"<link>https://example.test/x</link></item></channel></rss>"
+    )
+
+    assert feeds.parse_bytes(document)[0]["title"] == "Spread over lines"
+
+
+def test_non_breaking_spaces_become_ordinary_spaces():
+    document = (
+        "<rss><channel><item><title>A B</title>"
+        "<link>https://example.test/x</link></item></channel></rss>"
+    ).encode()
+
+    assert feeds.parse_bytes(document)[0]["title"] == "A B"

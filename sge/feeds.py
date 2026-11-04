@@ -5,6 +5,7 @@ have been seen, so a multi-megabyte advisory feed costs us only its
 first entries instead of the whole document.
 """
 
+import html
 import re
 import xml.etree.ElementTree as ET
 
@@ -45,10 +46,22 @@ def local_name(tag):
     return str(tag).rsplit("}", 1)[-1].lower()
 
 
+def normalise(text):
+    """Decode entities and collapse whitespace.
+
+    Feeds routinely escape their own markup, so a title arrives as
+    "Lock:&nbsp;Bypasses" — the XML parser hands back the literal
+    "&nbsp;" and only unescaping turns it into a space.
+    """
+    decoded = html.unescape(text).replace("\u00a0", " ")
+
+    return re.sub(r"\s+", " ", decoded).strip()
+
+
 def _text_of(element, names):
     for child in element:
         if local_name(child.tag) in names:
-            return "".join(child.itertext()).strip()
+            return normalise("".join(child.itertext()))
 
     return ""
 

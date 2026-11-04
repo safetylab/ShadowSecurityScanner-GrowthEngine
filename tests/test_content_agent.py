@@ -241,3 +241,27 @@ def test_html_in_feed_summaries_does_not_reach_the_draft(temp_db, drafts_dir):
     assert "<script>" not in text
     assert "&nbsp;" not in text
     assert "patch now" in text
+
+
+def test_doubly_escaped_markup_cannot_come_back_as_a_tag(temp_db,
+                                                         drafts_dir):
+    """Unescaping after stripping tags would re-create <script>."""
+    with db.session() as connection:
+        connection.execute(
+            """
+            INSERT INTO research_items
+                (source, title, link, canonical_link, summary, topic,
+                 relevance)
+            VALUES ('s', 'CVE in a vulnerability scanner',
+                    'https://example.test/x', 'https://example.test/x',
+                    '&amp;lt;script&amp;gt;alert(1)&amp;lt;/script&amp;gt; patch',
+                    'advisories', 70)
+            """
+        )
+        connection.commit()
+
+    run(["draft", "--topic", "advisories"])
+    text = next(drafts_dir.glob("*.md")).read_text(encoding="utf-8")
+
+    assert "<script>" not in text
+    assert "patch" in text

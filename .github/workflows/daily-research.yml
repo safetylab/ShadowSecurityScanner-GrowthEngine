@@ -22,7 +22,9 @@ concurrency:
 
 jobs:
   collect:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest migrates to Ubuntu 26 and we want
+    # reproducible runs, not a surprise image change.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
 
     steps:

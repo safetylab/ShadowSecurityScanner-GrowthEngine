@@ -66,8 +66,11 @@ def _pick_items(connection, topic, limit, min_relevance):
 
 def _clean(text, limit=320):
     """Plain-text excerpt of a feed summary."""
-    stripped = re.sub(r"<[^>]+>", " ", text or "")
-    collapsed = re.sub(r"\s+", " ", html.unescape(stripped)).strip()
+    # Unescape first, then strip: a doubly escaped "&amp;lt;script&amp;gt;"
+    # would otherwise turn back into a tag after the tags were removed.
+    unescaped = html.unescape(text or "")
+    stripped = re.sub(r"<[^>]+>", " ", unescaped)
+    collapsed = re.sub(r"\s+", " ", stripped).strip()
 
     if len(collapsed) <= limit:
         return collapsed
