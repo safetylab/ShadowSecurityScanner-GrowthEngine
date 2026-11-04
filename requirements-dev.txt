@@ -1,2 +1,7 @@
 -r requirements.txt
 pytest==9.2.0
+
+# Security tooling. bandit finds unsafe constructs, pip-audit checks the
+# pinned dependencies against known advisories. Both run in CI.
+bandit==1.9.4
+pip-audit==2.10.1

@@ -1,0 +1,17 @@
+# bandit configuration.
+#
+# B405 (import xml.etree) is reported wherever ElementTree is imported.
+# Feed parsing refuses any document declaring a DTD or entity before it
+# parses anything (sge/feeds.py, UnsafeFeed), which closes entity
+# expansion and external entity attacks; sge/feedgen.py only writes XML.
+# Tests cover both: see test_feeds.py.
+#
+# B608 (string-built SQL) is reported for two queries whose interpolated
+# parts are module constants and literal fragments; every value comes
+# from a bound parameter. See test_security.py for the SQL rules.
+skips:
+  - B405
+  - B608
+exclude_dirs:
+  - ./.venv
+  - ./tests

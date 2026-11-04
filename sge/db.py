@@ -13,6 +13,23 @@ from . import paths
 
 BUSY_TIMEOUT_MS = 30_000
 
+OWNER_ONLY = 0o600
+
+
+def _restrict(path):
+    """Keep the database readable by its owner only.
+
+    It holds no secrets by policy, but it does hold everything the
+    engine collected, and the default 0644 shares that with every local
+    account for no reason.
+    """
+    try:
+        if path.exists() and (path.stat().st_mode & 0o777) != OWNER_ONLY:
+            path.chmod(OWNER_ONLY)
+    except OSError:
+        pass
+
+
 MIGRATIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS schema_migrations (
     filename TEXT PRIMARY KEY,
@@ -27,6 +44,7 @@ def connect(db_file=None):
     target.parent.mkdir(parents=True, exist_ok=True)
 
     connection = sqlite3.connect(target, timeout=BUSY_TIMEOUT_MS / 1000)
+    _restrict(target)
     connection.row_factory = sqlite3.Row
     connection.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     connection.execute("PRAGMA journal_mode = WAL")

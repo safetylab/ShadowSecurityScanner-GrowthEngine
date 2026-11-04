@@ -142,27 +142,32 @@ jobs:
       #
       # Note this repository is public, so the dashboard — including the
       # open findings of each audit — becomes public with it.
+      - name: Check out the Pages branch
+        if: false
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: gh-pages
+          path: .pages
+
       - name: Publish the dashboard to Pages
         if: false
+        # The branch is checked out by actions/checkout above, which
+        # keeps the token out of a command line and out of any log.
+        working-directory: .pages
         run: |
-          rm -rf .pages
-          git clone --depth 1 --branch gh-pages \
-            "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" \
-            .pages
-          cp analytics/dashboard.html .pages/index.html
-          cd .pages
+          cp ../analytics/dashboard.html index.html
           git config user.name 'github-actions[bot]'
           git config user.email \
             '41898282+github-actions[bot]@users.noreply.github.com'
 
-          if git diff --quiet; then
+          if git diff --quiet -- index.html; then
             echo 'Dashboard unchanged.'
             exit 0
           fi
 
           git add index.html
           git commit -m "Dashboard after audit ${{ github.run_id }}"
-          git push origin gh-pages
+          git push origin HEAD:gh-pages
 
       - name: Upload reports and dashboard
         if: always()

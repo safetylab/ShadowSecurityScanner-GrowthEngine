@@ -82,8 +82,12 @@ jobs:
         run: python agents/research/main.py rescore
 
       - name: Collect sources
+        # Through the environment rather than interpolated into the
+        # script: the same rule as any other workflow input.
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             python agents/research/main.py collect --dry-run
           else
             python agents/research/main.py collect

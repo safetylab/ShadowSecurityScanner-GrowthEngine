@@ -1,0 +1,48 @@
+# Static security checks on every push and pull request, plus a weekly
+# run so a new advisory against a pinned dependency is noticed even when
+# nothing changes.
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '41 5 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Static analysis
+        run: bandit -q -c bandit.yml -r sge/ agents/
+
+      - name: Dependency advisories
+        run: pip-audit -r requirements-dev.txt --strict
+
+      - name: Security tests
+        run: python -m pytest tests/test_security.py tests/test_net_ssrf.py -q
+
+      - name: Full test suite
+        run: python -m pytest -q

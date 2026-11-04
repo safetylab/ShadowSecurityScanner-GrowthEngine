@@ -178,7 +178,7 @@ def command_publish(args):
             log.error("Draft did not pass the quality gate")
             return 1
 
-        source = paths.ROOT / row["path"]
+        source = paths.inside_root(row["path"])
 
         if not source.is_file():
             log.error("Draft file is missing: %s", source)
@@ -264,7 +264,7 @@ def command_rss(args):
     items = []
 
     for row in rows:
-        source = paths.ROOT / row["path"]
+        source = paths.inside_root(row["path"])
         text = source.read_text(encoding="utf-8") if source.is_file() else ""
 
         items.append({

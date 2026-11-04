@@ -364,7 +364,7 @@ def command_check(args):
         log.error("Unknown draft: %s", args.slug)
         return 1
 
-    path = paths.ROOT / row["path"]
+    path = paths.inside_root(row["path"])
 
     if not path.is_file():
         log.error("Draft file is missing: %s", path)

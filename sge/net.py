@@ -1,11 +1,16 @@
 """HTTP access with hard limits.
 
 Every outbound request goes through this module so timeouts, response
-size caps, redirect policy and the User-Agent are enforced in one place.
+size caps, redirect policy, the User-Agent and the refusal to reach
+private addresses are enforced in one place.
 """
 
+import ipaddress
+import os
+import socket
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 from . import __version__, urls
 
@@ -28,6 +33,89 @@ class ResponseTooLarge(FetchError):
     """The response exceeded the configured size cap."""
 
 
+class BlockedAddress(FetchError):
+    """The target resolves to an address we refuse to reach.
+
+    This is the server-side request forgery guard. The SEO agent follows
+    links found on web pages, which is untrusted input: a page carrying
+    <a href="http://169.254.169.254/latest/meta-data/"> would otherwise
+    make the agent read the runner's cloud metadata service.
+    """
+
+
+# Tests serve from 127.0.0.1, so they opt in explicitly through this
+# variable. Nothing else sets it.
+ALLOW_PRIVATE_ENV = "SGE_ALLOW_PRIVATE_NETWORKS"
+
+
+def private_addresses_allowed():
+    return os.environ.get(ALLOW_PRIVATE_ENV) == "1"
+
+
+def _is_public(address):
+    """True when an IP address is a routable public address."""
+    return not (
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+
+def resolved_addresses(host, port):
+    """Every address ``host`` resolves to."""
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except socket.gaierror as error:
+        raise FetchError(f"Cannot resolve {host}: {error}") from error
+
+    found = []
+
+    for info in infos:
+        try:
+            found.append(ipaddress.ip_address(info[4][0]))
+        except ValueError:
+            continue
+
+    if not found:
+        raise FetchError(f"Cannot resolve {host}")
+
+    return found
+
+
+def check_address(url):
+    """Refuse a URL whose host resolves to a non-public address.
+
+    Note the residual risk: the name is resolved again by the socket
+    layer when the request is made, so a DNS entry that changes between
+    the two lookups is not covered. Closing that needs connecting by IP
+    with an explicit Host header, which is more machinery than this
+    threat model justifies.
+    """
+    if private_addresses_allowed():
+        return
+
+    parts = urlsplit(url)
+    host = parts.hostname
+
+    if not host:
+        raise FetchError(f"URL has no host: {url!r}")
+
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    blocked = [
+        address for address in resolved_addresses(host, port)
+        if not _is_public(address)
+    ]
+
+    if blocked:
+        raise BlockedAddress(
+            f"Refusing to reach {host}: resolves to {blocked[0]}, which is "
+            "not a public address"
+        )
+
+
 class _StrictRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Follow redirects, but only to absolute http(s) URLs."""
 
@@ -36,6 +124,10 @@ class _StrictRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if not urls.is_valid_url(newurl):
             raise FetchError(f"Refusing redirect to unsupported URL: {code}")
+
+        # A redirect is as untrusted as the first URL: a public host can
+        # send us to 127.0.0.1 or to a metadata address.
+        check_address(newurl)
 
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
@@ -48,6 +140,8 @@ def open_response(url, timeout=DEFAULT_TIMEOUT, headers=None):
     """Open a validated URL and return the raw response object."""
     if not urls.is_valid_url(url):
         raise FetchError(f"Unsupported URL: {url!r}")
+
+    check_address(url)
 
     request = urllib.request.Request(
         url, headers={"User-Agent": USER_AGENT, **(headers or {})}

@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from sge import db, paths
+from sge import db, net, paths
 
 
 @pytest.fixture
@@ -59,6 +59,16 @@ class _Handler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, *_args):
         pass
+
+
+@pytest.fixture(autouse=True)
+def allow_local_addresses(monkeypatch):
+    """Tests serve from 127.0.0.1, which the SSRF guard blocks.
+
+    Opting in here, in one place, keeps the guard on by default
+    everywhere else — including in every agent the tests drive.
+    """
+    monkeypatch.setenv(net.ALLOW_PRIVATE_ENV, "1")
 
 
 @pytest.fixture

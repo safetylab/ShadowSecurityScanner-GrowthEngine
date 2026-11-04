@@ -77,9 +77,15 @@ jobs:
         run: python agents/research/main.py collect
 
       - name: Draft a digest
+        # Inputs arrive through the environment, never interpolated into
+        # the script: '${{ inputs.topic }}' would let a value containing
+        # a quote run commands on the runner.
+        env:
+          TOPIC: ${{ inputs.topic }}
+          LIMIT: ${{ inputs.limit }}
         run: |
           python agents/content/main.py draft \
-            --topic '${{ inputs.topic }}' --limit '${{ inputs.limit }}'
+            --topic "$TOPIC" --limit "$LIMIT"
 
       - name: Show the queue
         run: python agents/distribution/main.py queue

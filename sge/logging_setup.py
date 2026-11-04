@@ -88,9 +88,15 @@ def get_logger(name, level=None, log_file=True):
     if log_file:
         try:
             paths.LOG_DIR.mkdir(parents=True, exist_ok=True)
-            handler = logging.FileHandler(
-                paths.LOG_DIR / "sge.log", encoding="utf-8"
-            )
+            log_file_path = paths.LOG_DIR / "sge.log"
+            handler = logging.FileHandler(log_file_path, encoding="utf-8")
+
+            # Redaction keeps credentials out, but the log still records
+            # what the engine did; owner-only is the right default.
+            try:
+                log_file_path.chmod(0o600)
+            except OSError:
+                pass
             handler.setFormatter(formatter)
             logger.addHandler(handler)
         except OSError:
