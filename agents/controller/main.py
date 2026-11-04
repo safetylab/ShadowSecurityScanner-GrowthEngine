@@ -155,7 +155,8 @@ def command_log(args):
 def command_state_export(args):
     with db.session() as connection:
         db.migrate(connection)
-        text, count = state.export_state(connection, args.keep_days)
+        text, count = state.export_state(connection, args.keep_days,
+                                         args.text_days)
 
     target = Path(args.path)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -280,6 +281,10 @@ def build_parser():
     export.add_argument("--keep-days", type=int,
                         default=state.DEFAULT_KEEP_DAYS,
                         help="drop items older than this (0 keeps all)")
+    export.add_argument("--text-days", type=int,
+                        default=state.DEFAULT_TEXT_DAYS,
+                        help="carry article text for items this recent "
+                             "(0 carries all text)")
 
     restore = commands.add_parser(
         "state-import", help="load deduplication state from NDJSON"

@@ -104,12 +104,12 @@ def test_imported_state_prevents_recollection(temp_db):
     assert cursor.rowcount == 0
 
 
-def test_summaries_are_not_exported(temp_db):
-    """Bodies are ~85% of the bytes and are useless between runs."""
+def test_old_summaries_are_not_exported(temp_db):
+    """Only recent text travels: old bodies are dead weight."""
     with db.session() as connection:
-        insert_item(connection, 1)
+        insert_item(connection, 1, fetched_at="2020-01-01 00:00:00")
         connection.commit()
-        text, _ = state.export_state(connection)
+        text, _ = state.export_state(connection, keep_days=0)
 
     assert "state deliberately does not carry" not in text
     assert "summary" not in text
@@ -225,3 +225,89 @@ def test_header_carries_no_timestamp(temp_db):
     header = json.loads(text.splitlines()[0])
 
     assert header == {"v": state.FORMAT_VERSION, "type": "meta", "items": 1}
+
+
+def test_recent_text_travels_but_old_text_does_not(temp_db):
+    """A runner needs text to build a digest; old text is dead weight."""
+    import datetime as dt
+
+    today = dt.datetime.now(dt.timezone.utc)
+    recent = today.strftime("%Y-%m-%d %H:%M:%S")
+    old = (today - dt.timedelta(days=200)).strftime("%Y-%m-%d %H:%M:%S")
+
+    with db.session() as connection:
+        insert_item(connection, 1, fetched_at=recent,
+                    summary="Fresh article text.")
+        insert_item(connection, 2, fetched_at=old,
+                    summary="Stale article text.")
+        connection.commit()
+
+        text, _ = state.export_state(connection, keep_days=0, text_days=30)
+
+    assert "Fresh article text." in text
+    assert "Stale article text." not in text
+
+
+def test_text_days_zero_carries_every_summary(temp_db):
+    with db.session() as connection:
+        insert_item(connection, 1, fetched_at="2020-01-01 00:00:00",
+                    summary="Ancient text.")
+        connection.commit()
+
+        text, _ = state.export_state(connection, keep_days=0, text_days=0)
+
+    assert "Ancient text." in text
+
+
+def test_summaries_round_trip_so_a_runner_can_draft(temp_db):
+    with db.session() as connection:
+        insert_item(connection, 1, summary="A CRLF desync in a scanner.")
+        connection.commit()
+        text, _ = state.export_state(connection)
+
+    with db.session(temp_db.parent / "runner.db") as runner:
+        db.migrate(runner)
+        state.import_state(runner, text)
+        summary = runner.execute(
+            "SELECT summary FROM research_items"
+        ).fetchone()["summary"]
+
+    assert summary == "A CRLF desync in a scanner."
+
+
+def test_stored_summaries_are_capped(temp_db):
+    with db.session() as connection:
+        insert_item(connection, 1, summary="x" * 5000)
+        connection.commit()
+        text, _ = state.export_state(connection)
+
+    record = json.loads(text.splitlines()[1])
+
+    assert len(record["summary"]) == state.MAX_STORED_SUMMARY
+
+
+def test_version_one_state_is_still_readable(temp_db):
+    """Older state has no summary field; accepting it loses nothing."""
+    with db.session() as connection:
+        imported, _ = state.import_state(
+            connection,
+            '{"v": 1, "type": "meta"}\n'
+            '{"type": "research_item", "source": "s", "title": "t",'
+            ' "link": "https://a.test/x",'
+            ' "canonical_link": "https://a.test/x"}\n',
+        )
+        connection.commit()
+
+        summary = connection.execute(
+            "SELECT summary FROM research_items"
+        ).fetchone()["summary"]
+
+    assert imported == 1
+    assert summary is None
+
+
+def test_the_header_declares_the_current_version(temp_db):
+    with db.session() as connection:
+        text, _ = state.export_state(connection)
+
+    assert json.loads(text.splitlines()[0])["v"] == state.FORMAT_VERSION

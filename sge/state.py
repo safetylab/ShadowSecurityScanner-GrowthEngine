@@ -15,11 +15,18 @@ adding an empty one to the state branch every run.
 import datetime as dt
 import json
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 DEFAULT_KEEP_DAYS = 365
 
+# Article text is carried only for recent items. Without any text a
+# runner cannot build a digest — it would cite sources with no
+# description — but old text is dead weight: a digest of advisories from
+# six months ago is worth nothing. Recent text costs ~100 KiB; carrying
+# all of it would be ~85% of the file.
+DEFAULT_TEXT_DAYS = 30
+MAX_STORED_SUMMARY = 800
+
 # Everything needed to recognise an item again and to report on it.
-# 'summary' is deliberately absent: it is ~85% of the bytes.
 ITEM_FIELDS = (
     "source", "title", "link", "canonical_link", "published",
     "topic", "relevance", "excluded", "fetched_at",
@@ -38,10 +45,11 @@ def _cutoff(keep_days):
             - dt.timedelta(days=keep_days)).strftime("%Y-%m-%d %H:%M:%S")
 
 
-def export_state(connection, keep_days=DEFAULT_KEEP_DAYS):
+def export_state(connection, keep_days=DEFAULT_KEEP_DAYS,
+                 text_days=DEFAULT_TEXT_DAYS):
     """Serialise deduplication state as NDJSON text."""
     query = f"""
-        SELECT {', '.join(ITEM_FIELDS)}
+        SELECT {', '.join(ITEM_FIELDS)}, summary
         FROM research_items
     """
     params = []
@@ -54,10 +62,19 @@ def export_state(connection, keep_days=DEFAULT_KEEP_DAYS):
     query += " ORDER BY canonical_link"
 
     records = []
+    text_cutoff = _cutoff(text_days)
 
     for row in connection.execute(query, params):
         record = {"type": "research_item"}
         record.update({field: row[field] for field in ITEM_FIELDS})
+
+        summary = (row["summary"] or "").strip()
+        recent = (not text_cutoff
+                  or (row["fetched_at"] or "") >= text_cutoff)
+
+        if summary and recent:
+            record["summary"] = summary[:MAX_STORED_SUMMARY]
+
         records.append(json.dumps(record, ensure_ascii=False, sort_keys=True))
 
     # The header deliberately holds no export time: a timestamp would
@@ -99,7 +116,9 @@ def import_state(connection, text):
         if kind == "meta":
             version = record.get("v")
 
-            if version != FORMAT_VERSION:
+            # Version 1 is read as well: it is this format without the
+            # optional summary field, so nothing is lost by accepting it.
+            if version not in (1, FORMAT_VERSION):
                 raise StateError(
                     f"Unsupported state format version: {version!r}"
                 )
@@ -122,8 +141,8 @@ def import_state(connection, text):
             """
             INSERT OR IGNORE INTO research_items
                 (source, title, link, canonical_link, published, topic,
-                 relevance, excluded, fetched_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 relevance, excluded, fetched_at, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (record["source"], record["title"], record["link"],
              record["canonical_link"], record.get("published"),
@@ -131,7 +150,8 @@ def import_state(connection, text):
              int(record.get("excluded") or 0),
              record.get("fetched_at")
              or dt.datetime.now(dt.timezone.utc).strftime(
-                 "%Y-%m-%d %H:%M:%S")),
+                 "%Y-%m-%d %H:%M:%S"),
+             record.get("summary")),
         )
 
         if cursor.rowcount:
