@@ -207,7 +207,44 @@ def test_high_priority_comes_first_in_the_report(temp_db, monkeypatch,
 
     text = next((tmp_path / "r").glob("optimisation-*.md")).read_text("utf-8")
 
-    assert text.index("(high)") < text.index("(medium)")
+    assert text.index("## High priority") < text.index("## Medium priority")
+
+
+def test_each_priority_heading_appears_once(temp_db, monkeypatch, tmp_path,
+                                            capsys):
+    """Grouping by area duplicated "## seo" when sorted by priority."""
+    monkeypatch.setattr(optimisation.paths, "REPORTS_DIR", tmp_path / "r")
+
+    with db.session() as connection:
+        connection.execute(
+            "INSERT INTO seo_pages (run_id, url, status) "
+            "VALUES ('r1', 'https://a.test/', 200)"
+        )
+        connection.execute(
+            """
+            INSERT INTO seo_findings (run_id, url, severity, code, message)
+            VALUES ('r1', 'https://a.test/', 'high', 'broken_links', 'x')
+            """
+        )
+        for index in range(3):
+            connection.execute(
+                """
+                INSERT INTO seo_findings (run_id, url, severity, code,
+                                          message)
+                VALUES ('r1', ?, 'low', 'title_long', 'y')
+                """,
+                (f"https://a.test/{index}",),
+            )
+        connection.commit()
+
+    run(["analyse"])
+    run(["report"])
+    capsys.readouterr()
+
+    text = next((tmp_path / "r").glob("optimisation-*.md")).read_text("utf-8")
+
+    assert text.count("## High priority") == 1
+    assert text.count("## Medium priority") == 1
 
 
 def test_the_agent_writes_no_configuration(temp_db, capsys):

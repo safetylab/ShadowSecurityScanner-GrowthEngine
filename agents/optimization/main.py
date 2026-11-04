@@ -236,8 +236,8 @@ def analyse_github(connection):
     for row in serious:
         found.append(_recommend(
             "github", "high", row["code"].replace("_", " ").capitalize(),
-            row["message"] + " Drafts for the missing community files are "
-            "available: `github templates`.",
+            row["message"].rstrip(".") + ". Drafts for the missing "
+            "community files are available: `github templates`.",
             {"code": row["code"]},
         ))
 
@@ -346,7 +346,8 @@ def command_report(args):
         ).fetchall()
 
     items = sorted((dict(row) for row in rows),
-                   key=lambda item: PRIORITY_ORDER[item["priority"]])
+                   key=lambda item: (PRIORITY_ORDER[item["priority"]],
+                                     item["area"]))
     today = dt.date.today().isoformat()
 
     lines = [
@@ -360,18 +361,19 @@ def command_report(args):
         "",
     ]
 
-    current_area = None
+    current_priority = None
 
     for item in items:
-        if item["area"] != current_area:
-            current_area = item["area"]
-            lines += ["", f"## {current_area}", ""]
+        if item["priority"] != current_priority:
+            current_priority = item["priority"]
+            lines += ["", f"## {current_priority.capitalize()} priority",
+                      ""]
 
         evidence = json.loads(item["evidence"])
         measured = ", ".join(f"{key}={value}"
                              for key, value in sorted(evidence.items()))
 
-        lines.append(f"### {item['title']} ({item['priority']})")
+        lines.append(f"### {item['area']}: {item['title']}")
         lines.append("")
         lines.append(item["detail"])
 
