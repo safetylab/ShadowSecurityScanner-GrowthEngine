@@ -44,9 +44,16 @@ python agents/content/main.py list
 
 | Agent | Entry point | What it does |
 | --- | --- | --- |
-| Controller | `agents/controller/main.py` | Task queue, audit log, migrations, config validation |
+| Controller | `agents/controller/main.py` | Task queue, audit log, migrations, config validation, state export/import |
 | Market Research | `agents/research/main.py` | Fetches public RSS/Atom sources, deduplicates, scores relevance |
 | Content Factory | `agents/content/main.py` | Builds drafts with mandatory source links, enforces the quality gate |
+| SEO | `agents/seo/main.py` | Audits the site: status, metadata, canonicals, sitemap, robots, links |
+| GitHub Growth | `agents/github/main.py` | Audits the repository, snapshots counters, drafts community files |
+| Distribution | `agents/distribution/main.py` | Publishes to owned channels and rebuilds the RSS feed |
+| Community Radar | `agents/community/main.py` | Finds threads worth a reply; drafts one, never posts |
+| Analytics | `agents/analytics/main.py` | Records measurable metrics, writes daily/weekly/monthly reports |
+| Optimisation | `agents/optimization/main.py` | Turns metrics and findings into advice with evidence |
+| Dashboard | `agents/dashboard/main.py` | Renders one static HTML page from the engine's tables |
 
 Every agent has a `--help` on each subcommand, logs to stderr and to
 `logs/sge.log`, and exits non-zero on failure.
@@ -129,15 +136,98 @@ the project link, still contains placeholders, or makes unverifiable
 claims such as "100% detection". A rejected draft is not written to disk
 at all.
 
+### SEO (read-only)
+
+```bash
+python agents/seo/main.py audit --check-links
+python agents/seo/main.py report
+python agents/seo/main.py links
+```
+
+Walks `sitemap.xml`, checks each page and reports worst-first. It visits
+politely: half a second between requests and a hard 50-page cap. It never
+changes the site — fixing a finding is a human decision.
+
+### GitHub Growth (read-only)
+
+```bash
+python agents/github/main.py audit
+python agents/github/main.py report
+python agents/github/main.py templates     # drafts into content/drafts/github
+python agents/github/main.py snapshot      # counters only
+```
+
+Audits metadata, README, community files, release hygiene and unanswered
+issues, and records a counter snapshot per run. It never opens an issue
+or pull request, never messages anyone, and touches no counter.
+`GITHUB_TOKEN` is optional: it only raises the rate limit.
+
+### Distribution
+
+```bash
+python agents/distribution/main.py queue
+python agents/distribution/main.py approve --slug <slug>
+python agents/distribution/main.py publish --slug <slug>
+python agents/distribution/main.py rss
+```
+
+Publishes only to channels the project owns. An external channel is
+refused outright. The quality gate runs **again** at publish time,
+because a file can be edited by hand after it was generated, and the
+daily cap from `policies.yml` applies.
+
+### Community Radar (never posts)
+
+```bash
+python agents/community/main.py scan
+python agents/community/main.py list --advice reply
+python agents/community/main.py draft --id <n>
+python agents/community/main.py review --id <n>
+```
+
+Searches Hacker News (public Algolia API) and GitHub issues, then judges
+each thread on three axes: is it about our subject, did anyone ask for
+input, and is it still open. Only a thread that clears all three is worth
+a draft. A draft carries an affiliation disclosure and a checklist; you
+post it yourself. The agent contains no posting code, and a test asserts
+that against its own source.
+
+### Analytics
+
+```bash
+python agents/analytics/main.py collect
+python agents/analytics/main.py report --period weekly
+python agents/analytics/main.py series --metric github_stars
+```
+
+Records only measurable values. Each report ends with what is *not*
+measured and why: there is no privacy-friendly site analytics connected,
+and installs are not observable without telemetry the project does not
+ship. Those numbers are left out rather than estimated.
+
+### Optimisation and dashboard
+
+```bash
+python agents/optimization/main.py analyse
+python agents/optimization/main.py report
+python agents/dashboard/main.py build      # analytics/dashboard.html
+```
+
+Optimisation attaches its evidence to every recommendation, so a wrong
+one can be argued with. It changes no configuration, policy or goal. The
+dashboard is a single static HTML file with no scripts, fonts or CDN
+requests — one that phoned home would be telemetry by the back door.
+
 ## Layout
 
 ```text
-sge/            shared library: db, config, net, feeds, relevance, quality
-agents/         one CLI per agent
-config/         brand, channels, policies, keywords, sources, publishing rules
+sge/            shared library: db, config, net, feeds, relevance, quality,
+                state, seo, repo_health, github, hackernews, metrics, feedgen
+agents/         one CLI per agent (ten of them)
+config/         brand, channels, policies, keywords, community, sources, rules
 database/       migrations (the schema's only source of truth)
-content/        templates, drafts, social drafts
-analytics/      generated reports
+content/        templates, drafts, social and community drafts, published
+analytics/      generated reports and dashboard.html
 tests/          pytest suite, no network access
 ```
 
@@ -201,9 +291,30 @@ oversized responses, malformed XML, HTML error pages — is exercised
 against a local HTTP server, and every test uses its own database via
 `SGE_DB_PATH`.
 
+## Scheduled work
+
+| Workflow | When | What it does |
+| --- | --- | --- |
+| `daily-research.yml` | 06:17 UTC daily | Collects sources, writes a report, saves state |
+| `weekly-audit.yml` | Mondays 07:23 UTC | Site and repository audits, radar, metrics, advice, dashboard |
+| `content-drafts.yml` | Manual only | Drafts a digest and uploads it for review |
+
+Content drafting stays manual on purpose: a draft is a claim about
+reality that a person has to check before it goes anywhere.
+
 ## Status
 
-Phases 1–3 of the implementation plan are in place: foundation,
-market research, content factory. Still to come: SEO audit, GitHub
-growth, community radar, analytics, the optimisation agent, and
-scheduled automation once CI state handling is settled.
+All eleven phases of the implementation plan are implemented. What is
+deliberately absent: automatic posting to communities the project does
+not own, any telemetry in the scanner, and any number the engine cannot
+honestly measure.
+
+Known limits worth keeping in mind:
+
+- the CISA feed answers HTTP 403 to Actions runners, so the full set of
+  six sources is only collected from a local or residential network;
+- topic classification is a keyword heuristic and leaves a large share of
+  items unclassified. `config/keywords.yml` needs extending as you see
+  what the feeds actually publish, followed by `research rescore`;
+- relevance scoring is transparent rather than clever: it explains every
+  score, and it will miss things a model would catch.

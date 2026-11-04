@@ -183,3 +183,52 @@ def test_links_command_without_a_check_says_so(site, capsys):
 
     assert run(["links"]) == 0
     assert "No links checked" in capsys.readouterr().out
+
+
+def test_a_403_is_not_reported_as_a_broken_link(site, monkeypatch,
+                                                tmp_path, capsys):
+    """cisa.gov answers 200 to a browser and 403 to this agent: calling
+    that broken would send someone to fix a working link."""
+    monkeypatch.setattr(seo_agent.paths, "REPORTS_DIR", tmp_path / "r")
+    site.server.serve(
+        "/", PAGE % (b"d" * 100, site.base.encode())
+        + b'<a href="/refused">refused</a><a href="/gone">gone</a>',
+        content_type="text/html")
+    site.server.serve("/refused", b"nope", status=403,
+                      content_type="text/html")
+
+    run(["audit", "--check-links"])
+    capsys.readouterr()
+    codes = {row["code"] for row in findings()}
+
+    assert "links_unverifiable" in codes
+    assert "broken_links" in codes
+
+    run(["report"])
+    capsys.readouterr()
+    text = next((tmp_path / "r").glob("seo-*.md")).read_text("utf-8")
+
+    broken = text.split("## Broken links")[1].split("##")[0]
+    unverifiable = text.split("could not verify")[1]
+
+    assert "/gone" in broken
+    assert "/refused" not in broken
+    assert "/refused" in unverifiable
+
+
+def test_the_unverifiable_finding_is_low_severity(site, capsys):
+    """It is a note for a human, not a defect on the site."""
+    site.server.serve(
+        "/", PAGE % (b"d" * 100, site.base.encode())
+        + b'<a href="/refused">refused</a>',
+        content_type="text/html")
+    site.server.serve("/refused", b"nope", status=403,
+                      content_type="text/html")
+
+    run(["audit", "--check-links"])
+    capsys.readouterr()
+
+    finding = next(row for row in findings()
+                   if row["code"] == "links_unverifiable")
+
+    assert finding["severity"] == "low"

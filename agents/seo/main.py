@@ -229,10 +229,19 @@ def command_audit(args):
     return 0
 
 
+REFUSAL_CODES = ("HTTP 403", "HTTP 429")
+
+
+def _refused_us(error):
+    """True when the target refused the checker rather than being dead."""
+    return any(code in error for code in REFUSAL_CODES)
+
+
 def _check_links(connection, run_id, targets, limit):
     """Resolve collected links; records status or error per link."""
     log.info("Checking %d link target(s)", min(len(targets), limit))
     broken = 0
+    blocked = 0
 
     for index, (url, (found_on, kind)) in enumerate(targets.items()):
         if index >= limit:
@@ -252,7 +261,16 @@ def _check_links(connection, run_id, targets, limit):
             status = 200          # it answered, it is simply a big page
         except net.FetchError as failure:
             error = str(failure)[:300]
-            broken += 1
+
+            # 403 and 429 say the target refused *us*, not that the link
+            # is dead: cisa.gov answers 200 to a browser and 403 to this
+            # agent. Reporting that as broken would send someone to fix
+            # a working link.
+            if _refused_us(error):
+                status = None
+                blocked += 1
+            else:
+                broken += 1
 
         connection.execute(
             """
@@ -269,10 +287,21 @@ def _check_links(connection, run_id, targets, limit):
             INSERT INTO seo_findings (run_id, url, severity, code, message)
             VALUES (?, ?, 'high', 'broken_links', ?)
             """,
-            (run_id, "site", f"{broken} link(s) did not resolve"),
+            (run_id, "site", f"{broken} link(s) returned 404 or failed"),
         )
 
-    log.info("Link check done: %d did not resolve", broken)
+    if blocked:
+        connection.execute(
+            """
+            INSERT INTO seo_findings (run_id, url, severity, code, message)
+            VALUES (?, ?, 'low', 'links_unverifiable', ?)
+            """,
+            (run_id, "site",
+             f"{blocked} link(s) refused this checker (403/429); they may "
+             "still work in a browser"),
+        )
+
+    log.info("Link check done: %d broken, %d unverifiable", broken, blocked)
 
 
 def _latest_run(connection):
@@ -302,8 +331,19 @@ def command_report(args):
             (run_id,),
         ).fetchall()
         broken = connection.execute(
-            "SELECT url, found_on, error FROM seo_links "
-            "WHERE run_id = ? AND error IS NOT NULL",
+            """
+            SELECT url, found_on, error FROM seo_links
+            WHERE run_id = ? AND error IS NOT NULL AND status IS NULL
+              AND error NOT LIKE '%HTTP 403%' AND error NOT LIKE '%HTTP 429%'
+            """,
+            (run_id,),
+        ).fetchall()
+        unverifiable = connection.execute(
+            """
+            SELECT url, found_on, error FROM seo_links
+            WHERE run_id = ?
+              AND (error LIKE '%HTTP 403%' OR error LIKE '%HTTP 429%')
+            """,
             (run_id,),
         ).fetchall()
 
@@ -351,8 +391,19 @@ def command_report(args):
         )
 
     if broken:
-        lines += ["", "## Links that did not resolve", ""]
+        lines += ["", "## Broken links", ""]
         for link in broken:
+            lines.append(
+                f"- {link['url']} — {link['error']}  \n"
+                f"  found on {link['found_on']}"
+            )
+
+    if unverifiable:
+        lines += ["", "## Links this checker could not verify", "",
+                  "These refused the audit (403 or 429). They often work "
+                  "in a browser: check by hand before changing anything.",
+                  ""]
+        for link in unverifiable:
             lines.append(
                 f"- {link['url']} — {link['error']}  \n"
                 f"  found on {link['found_on']}"
