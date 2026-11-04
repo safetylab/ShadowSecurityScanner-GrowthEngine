@@ -240,16 +240,41 @@ flags cannot be silently switched off.
 
 ## Security
 
-- Secrets only ever come from the environment or GitHub Actions Secrets.
-  `.gitignore` excludes `.env`, keys and `*.db`.
-- Logs pass through a redacting filter: values of `*TOKEN*`, `*SECRET*`,
-  `*KEY*` and `*PASSWORD*` environment variables and token-shaped
-  strings are masked before a record is formatted.
-- All outbound HTTP goes through [`sge/net.py`](sge/net.py): HTTPS-only
-  URL validation, timeouts, a response size cap, a redirect policy that
-  refuses non-http(s) targets, and an identifying User-Agent.
-- Third-party actions are pinned to a full commit SHA.
-- Workflows declare minimal `permissions` and are manual-only for now.
+Verified by [`security.yml`](.github/workflows/security.yml) on every
+push and pull request, and weekly: `bandit`, `pip-audit --strict` and
+[`tests/test_security.py`](tests/test_security.py), which asserts the
+properties below rather than trusting them.
+
+- **No request reaches a private address.** Every outbound URL and every
+  redirect target resolves through a check in
+  [`sge/net.py`](sge/net.py) that refuses loopback, private, link-local,
+  multicast, reserved and unspecified addresses. This matters because
+  the SEO agent follows links found on web pages: without it, a page
+  carrying `<a href="http://169.254.169.254/latest/meta-data/">` would
+  make the agent read the runner's cloud metadata. Tests opt out through
+  `SGE_ALLOW_PRIVATE_NETWORKS=1` to reach their local server; nothing
+  else sets it. Residual risk: the socket layer resolves the name again
+  when the request is made, so a DNS record changing between the two
+  lookups is not covered.
+- **No workflow input reaches a shell.** Inputs arrive through `env`,
+  never interpolated into a `run:` block, where a value containing a
+  quote would execute commands on the runner.
+- All outbound HTTP goes through `sge/net.py`: HTTPS-only validation,
+  timeouts, a 12 MB response cap, at most three redirects, and an
+  identifying User-Agent.
+- Feed documents declaring a DTD or entity are refused before parsing,
+  which closes entity expansion and external entity attacks.
+- Secrets only ever come from the environment or Actions Secrets.
+  `.gitignore` excludes `.env`, keys and `*.db`. Logs pass through a
+  redacting filter that masks values of `*TOKEN*`, `*SECRET*`, `*KEY*`
+  and `*PASSWORD*` variables and token-shaped strings.
+- The database and log file are created `0600`.
+- Paths read from the database resolve through `paths.inside_root`, so a
+  stored `../../etc/passwd` cannot be read or published.
+- Third-party actions are pinned to full commit SHAs. Workflows declare
+  `contents: read`; only the job that saves state gets write, and it
+  pushes only to the `state` branch. No `pull_request_target`.
+- No `eval`, `exec`, `pickle`, `subprocess` or `yaml.load` anywhere.
 
 ## State on CI
 
