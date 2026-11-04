@@ -95,11 +95,25 @@ def test_internal_links_are_absolute_same_host_and_unique():
 
     found = seo.internal_links("https://example.test/page", links,
                                "example.test")
+    canonical = [pair[0] for pair in found]
 
-    assert "https://example.test/a" in found
-    assert "https://example.test/b" in found
-    assert all("other.test" not in url for url in found)
-    assert len(found) == len(set(found))
+    assert "https://example.test/a" in canonical
+    assert "https://example.test/b" in canonical
+    assert all("other.test" not in url for url in canonical)
+    assert len(canonical) == len(set(canonical))
+
+
+def test_links_keep_the_address_to_request_as_well_as_the_dedup_key():
+    """Canonicalisation strips a trailing slash; the request must not.
+
+    "/guides/child" is a different request from "/guides/child/", and a
+    server that does not redirect between them answers 404.
+    """
+    found = seo.internal_links("https://example.test/guides/",
+                               ["child/"], "example.test")
+
+    assert found == [("https://example.test/guides/child",
+                      "https://example.test/guides/child/")]
 
 
 def test_external_links_exclude_our_own_host():
@@ -107,7 +121,7 @@ def test_external_links_exclude_our_own_host():
 
     found = seo.external_links("https://example.test/page", links)
 
-    assert found == ["https://other.test/c"]
+    assert [pair[0] for pair in found] == ["https://other.test/c"]
 
 
 @pytest.mark.parametrize("severity", seo.SEVERITIES)

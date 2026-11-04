@@ -42,6 +42,12 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         if delay:
             time.sleep(delay)
 
+        if route.get("redirect_to"):
+            self.send_response(route.get("status", 301))
+            self.send_header("Location", route["redirect_to"])
+            self.end_headers()
+            return
+
         body = route["body"]
         self.send_response(route.get("status", 200))
         self.send_header("Content-Type", route.get("content_type",

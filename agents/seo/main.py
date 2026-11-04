@@ -43,11 +43,17 @@ def site_url():
 
 
 def fetch_text(url, max_bytes=MAX_PAGE_BYTES):
-    """Fetch a page, returning (status, text, byte length)."""
-    data = net.fetch_bytes(url, timeout=net.DEFAULT_TIMEOUT,
-                           max_bytes=max_bytes)
+    """Fetch a page: (status, text, byte length, URL it came from).
 
-    return 200, data.decode("utf-8", errors="replace"), len(data)
+    The final URL is what relative links must resolve against. Sitemaps
+    list directory URLs with a trailing slash, canonicalisation strips
+    it, and the server redirects back — resolving "page/" against the
+    stripped form yields a path at the site root that does not exist.
+    """
+    data, final_url = net.fetch(url, timeout=net.DEFAULT_TIMEOUT,
+                                max_bytes=max_bytes)
+
+    return 200, data.decode("utf-8", errors="replace"), len(data), final_url
 
 
 def sitemap_urls(base):
@@ -55,7 +61,7 @@ def sitemap_urls(base):
     target = urls.canonical_url(base.rstrip("/") + "/sitemap.xml")
 
     try:
-        _status, text, _size = fetch_text(target)
+        _status, text, _size, _final = fetch_text(target)
     except net.FetchError as error:
         log.warning("No usable sitemap at %s: %s", target, error)
         return [urls.canonical_url(base)], False
@@ -86,7 +92,8 @@ def check_robots(base):
     target = urls.canonical_url(base.rstrip("/") + "/robots.txt")
 
     try:
-        _status, text, _size = fetch_text(target, max_bytes=512 * 1024)
+        _status, text, _size, _final = fetch_text(target,
+                                                  max_bytes=512 * 1024)
     except net.FetchError as error:
         return [{
             "severity": "high", "code": "robots_missing",
@@ -149,7 +156,7 @@ def command_audit(args):
             started = time.monotonic()
 
             try:
-                status, text, size = fetch_text(url)
+                status, text, size, final_url = fetch_text(url)
             except net.FetchError as error:
                 log.warning("%s: %s", url, error)
                 connection.execute(
@@ -168,13 +175,19 @@ def command_audit(args):
                 continue
 
             page = html_meta.parse_page(text)
-            internal = seo.internal_links(url, page["links"], host)
-            external = seo.external_links(url, page["links"])
+            # Resolve against where the page actually came from, not the
+            # URL we asked for.
+            internal = seo.internal_links(final_url, page["links"], host)
+            external = seo.external_links(final_url, page["links"])
 
-            for target in internal:
-                link_targets.setdefault(target, (url, "internal"))
-            for target in external:
-                link_targets.setdefault(target, (url, "external"))
+            # Keyed by the canonical form so a link is checked once,
+            # but the address actually requested is the absolute one.
+            for canonical, absolute in internal:
+                link_targets.setdefault(canonical,
+                                        (absolute, final_url, "internal"))
+            for canonical, absolute in external:
+                link_targets.setdefault(canonical,
+                                        (absolute, final_url, "external"))
 
             connection.execute(
                 """
@@ -189,7 +202,7 @@ def command_audit(args):
                  int((time.monotonic() - started) * 1000)),
             )
 
-            page_findings = seo.check_page(url, status, page)
+            page_findings = seo.check_page(final_url, status, page)
 
             for finding in page_findings:
                 all_findings.append({"url": url, **finding})
@@ -243,7 +256,8 @@ def _check_links(connection, run_id, targets, limit):
     broken = 0
     blocked = 0
 
-    for index, (url, (found_on, kind)) in enumerate(targets.items()):
+    for index, (canonical, (url, found_on, kind)) in enumerate(
+            targets.items()):
         if index >= limit:
             break
 

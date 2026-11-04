@@ -116,12 +116,24 @@ def check_page(url, status, page):
     return findings
 
 
-def internal_links(url, links, host):
-    """Absolute, same-host links from a page, deduplicated."""
-    found = []
+SKIP_PREFIXES = ("mailto:", "tel:", "javascript:", "#", "data:")
+
+
+def _absolute_links(url, links):
+    """Yield (canonical, absolute) for each usable link on a page.
+
+    Both forms are needed. The canonical form deduplicates, so one page
+    is not checked twice because of a tracking parameter. The absolute
+    form is what gets requested, because canonicalisation strips a
+    trailing slash and "/guides/child" is not the same request as
+    "/guides/child/": a server that does not redirect between them
+    answers 404, which an audit would report as a broken link on a site
+    that is fine.
+    """
+    seen = set()
 
     for href in links:
-        if href.startswith(("mailto:", "tel:", "javascript:", "#", "data:")):
+        if href.startswith(SKIP_PREFIXES):
             continue
 
         absolute = urljoin(url, href)
@@ -129,40 +141,31 @@ def internal_links(url, links, host):
         if not urls.is_valid_url(absolute):
             continue
 
-        if urlsplit(absolute).hostname != host:
-            continue
-
         canonical = urls.canonical_url(absolute)
 
-        if canonical not in found:
-            found.append(canonical)
+        if canonical in seen:
+            continue
 
-    return found
+        seen.add(canonical)
+        yield canonical, absolute
+
+
+def internal_links(url, links, host):
+    """Same-host links from a page, as (canonical, absolute) pairs."""
+    return [
+        pair for pair in _absolute_links(url, links)
+        if urlsplit(pair[1]).hostname == host
+    ]
 
 
 def external_links(url, links):
-    """Absolute links pointing off-site, deduplicated."""
+    """Off-site links from a page, as (canonical, absolute) pairs."""
     host = urlsplit(url).hostname
-    found = []
 
-    for href in links:
-        if href.startswith(("mailto:", "tel:", "javascript:", "#", "data:")):
-            continue
-
-        absolute = urljoin(url, href)
-
-        if not urls.is_valid_url(absolute):
-            continue
-
-        if urlsplit(absolute).hostname == host:
-            continue
-
-        canonical = urls.canonical_url(absolute)
-
-        if canonical not in found:
-            found.append(canonical)
-
-    return found
+    return [
+        pair for pair in _absolute_links(url, links)
+        if urlsplit(pair[1]).hostname != host
+    ]
 
 
 def sort_findings(findings):

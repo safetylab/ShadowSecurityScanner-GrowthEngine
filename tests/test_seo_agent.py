@@ -232,3 +232,51 @@ def test_the_unverifiable_finding_is_low_severity(site, capsys):
                    if row["code"] == "links_unverifiable")
 
     assert finding["severity"] == "low"
+
+
+def test_relative_links_resolve_against_the_final_url(site, monkeypatch,
+                                                      capsys):
+    """A real false alarm: the sitemap lists "/guides/", canonicalisation
+    strips the slash, the server redirects back, and resolving "page/"
+    against "/guides" produced "/page/" at the site root — reported as a
+    broken link on a site that was fine."""
+    base = site.base.rstrip("/")
+
+    # A page with exactly one link, so nothing else can muddy the result.
+    minimal = (b"<html><head><title>A title long enough for the check</title>"
+               b'<meta name="description" content="' + b"d" * 100 + b'">'
+               b'<meta property="og:title" content="t">'
+               b'<meta property="og:description" content="d">'
+               b'<meta property="og:type" content="website">'
+               b'<meta property="og:url" content="u">'
+               b'<link rel="canonical" href="' + f"{base}/guides/".encode()
+               + b'"></head><body><h1>Guides</h1>'
+               b'<a href="child/">child</a></body></html>')
+
+    # /guides redirects to /guides/, which links to a child page.
+    site.server.serve("/guides", b"", redirect_to=f"{base}/guides/")
+    site.server.serve("/guides/", minimal, content_type="text/html")
+    site.server.serve(
+        "/guides/child/", PAGE % (b"d" * 100, f"{base}/guides/child/".encode()),
+        content_type="text/html")
+    site.server.serve(
+        "/sitemap.xml",
+        f"<urlset><url><loc>{base}/guides/</loc></url></urlset>".encode())
+
+    assert run(["audit", "--check-links"]) == 0
+    capsys.readouterr()
+
+    with db.session() as connection:
+        checked = [row["url"] for row in connection.execute(
+            "SELECT url FROM seo_links"
+        )]
+        broken = [row["url"] for row in connection.execute(
+            "SELECT url FROM seo_links WHERE error IS NOT NULL"
+        )]
+
+    # The address requested keeps its trailing slash, and it sits under
+    # /guides/ rather than at the site root.
+    assert f"{base}/guides/child/" in checked, checked
+    assert f"{base}/child/" not in checked, "resolved against the wrong base"
+    assert f"{base}/child" not in checked
+    assert broken == [], broken

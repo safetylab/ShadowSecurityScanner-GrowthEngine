@@ -198,3 +198,45 @@ def fetch_bytes(url, timeout=DEFAULT_TIMEOUT, max_bytes=DEFAULT_MAX_BYTES,
                 headers=None):
     """Read a whole response into memory, respecting the size cap."""
     return b"".join(iter_chunks(url, timeout, max_bytes, headers))
+
+
+def fetch(url, timeout=DEFAULT_TIMEOUT, max_bytes=DEFAULT_MAX_BYTES,
+          headers=None):
+    """Read a response and report the URL it actually came from.
+
+    The final URL matters for resolving relative links: a request for
+    "/guides" is redirected to "/guides/", and urljoin against the
+    pre-redirect URL drops the last segment, turning "page/" into
+    "/page/" at the site root. That produced phantom 404s in SEO audits.
+    """
+    response = open_response(url, timeout=timeout, headers=headers)
+    received = bytearray()
+
+    try:
+        final_url = response.geturl() or url
+        declared = response.headers.get("Content-Length")
+
+        if declared and declared.isdigit() and int(declared) > max_bytes:
+            raise ResponseTooLarge(
+                f"Content-Length {declared} exceeds limit {max_bytes}"
+            )
+
+        while True:
+            try:
+                chunk = response.read(CHUNK_SIZE)
+            except OSError as error:
+                raise FetchError(f"Read failed: {error}") from error
+
+            if not chunk:
+                break
+
+            received.extend(chunk)
+
+            if len(received) > max_bytes:
+                raise ResponseTooLarge(
+                    f"Response exceeded limit of {max_bytes} bytes"
+                )
+    finally:
+        response.close()
+
+    return bytes(received), final_url
