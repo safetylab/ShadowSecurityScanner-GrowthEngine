@@ -8,9 +8,12 @@ on:
   workflow_dispatch:
     inputs:
       topic:
-        description: Topic to draft (blank = any)
+        # Blank by default: on a runner the advisory sources are the
+        # ones that are blocked, so naming a topic that happens to have
+        # no text there fails the run for no useful reason.
+        description: Topic to draft (blank = whatever was collected)
         type: string
-        default: advisories
+        default: ''
       limit:
         description: Items to include
         type: string
