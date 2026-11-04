@@ -21,6 +21,7 @@ token.json
 # Local runtime output.
 logs/
 analytics/reports/
+analytics/dashboard.html
 content/drafts/
 content/social/
 
