@@ -45,6 +45,7 @@ def _pick_items(connection, topic, limit, min_relevance):
         SELECT source, title, link, summary, topic, relevance, published
         FROM research_items
         WHERE relevance >= ? AND excluded = 0
+          AND summary IS NOT NULL AND TRIM(summary) != ''
     """
     params = [min_relevance]
 
@@ -91,8 +92,11 @@ def _analysis(items, topic, project):
         if len(sources) > 1 else "one public source"
     )
 
+    subject = ("This item comes from" if len(items) == 1
+               else f"These {len(items)} items come from")
+
     return (
-        f"These {len(items)} items come from {origin} "
+        f"{subject} {origin} "
         f"({', '.join(sources)}). They are relevant to "
         f"anyone running {project['name']} because the topic — {topic} — "
         "maps directly to checks an operator can run against their own "
@@ -102,9 +106,15 @@ def _analysis(items, topic, project):
     )
 
 
+def _plural(count, singular, plural=None):
+    return singular if count == 1 else (plural or f"{singular}s")
+
+
 def _intro(topic, count):
+    noun = _plural(count, "item")
+
     return (
-        f"A review of {count} public security items collected on "
+        f"A review of {count} public security {noun} collected on "
         f"{_today()} in the area of {topic}. Each entry links to its "
         "primary source; nothing here replaces reading that source. "
         "This digest exists to help operators decide what to verify in "
@@ -134,8 +144,10 @@ def command_draft(args):
 
         if not items:
             log.error(
-                "No research items with relevance >= %d%s. "
-                "Run the research agent first.",
+                "No research items with relevance >= %d%s and a stored "
+                "summary. Collected state carries deduplication keys "
+                "without article text, so a digest can only use items "
+                "fetched in a run: collect first, then draft.",
                 args.min_relevance,
                 f" for topic '{args.topic}'" if args.topic else "",
             )

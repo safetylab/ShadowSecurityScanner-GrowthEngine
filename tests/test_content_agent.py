@@ -265,3 +265,56 @@ def test_doubly_escaped_markup_cannot_come_back_as_a_tag(temp_db,
 
     assert "<script>" not in text
     assert "patch" in text
+
+
+def test_items_without_a_summary_are_not_used(temp_db, drafts_dir):
+    """State carries keys without article text: a digest needs the text."""
+    with db.session() as connection:
+        connection.execute(
+            """
+            INSERT INTO research_items
+                (source, title, link, canonical_link, summary, topic,
+                 relevance)
+            VALUES ('s', 'A CVE in a vulnerability scanner',
+                    'https://example.test/x', 'https://example.test/x',
+                    NULL, 'advisories', 70)
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO research_items
+                (source, title, link, canonical_link, summary, topic,
+                 relevance)
+            VALUES ('s', 'Another CVE in a scanner',
+                    'https://example.test/y', 'https://example.test/y',
+                    '   ', 'advisories', 70)
+            """
+        )
+        connection.commit()
+
+    assert run(["draft", "--topic", "advisories"]) == 1
+    assert list(drafts_dir.glob("*.md")) == []
+
+
+def test_a_single_item_digest_reads_as_singular(temp_db, drafts_dir):
+    with db.session() as connection:
+        connection.execute(
+            """
+            INSERT INTO research_items
+                (source, title, link, canonical_link, summary, topic,
+                 relevance)
+            VALUES ('s', 'HTTP header injection made critical',
+                    'https://example.test/x', 'https://example.test/x',
+                    'A CRLF desync in a web application.', 'web_research',
+                    70)
+            """
+        )
+        connection.commit()
+
+    assert run(["draft", "--topic", "web_research"]) == 0
+
+    text = next(drafts_dir.glob("*.md")).read_text(encoding="utf-8")
+
+    assert "1 public security item collected" in text
+    assert "1 items" not in text
+    assert "This item comes from" in text

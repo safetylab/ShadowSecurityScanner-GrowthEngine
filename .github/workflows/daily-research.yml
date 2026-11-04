@@ -75,6 +75,12 @@ jobs:
           python agents/controller/main.py state-import \
             --path "$STATE_FILE" --allow-missing
 
+      - name: Apply the current configuration to stored items
+        # State carries the verdicts of whatever configuration was
+        # current when it was written: without this, a keyword change
+        # only ever affects items collected afterwards.
+        run: python agents/research/main.py rescore
+
       - name: Collect sources
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
