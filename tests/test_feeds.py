@@ -146,3 +146,35 @@ def test_non_breaking_spaces_become_ordinary_spaces():
     ).encode()
 
     assert feeds.parse_bytes(document)[0]["title"] == "A B"
+
+
+def test_summary_markup_is_stripped_before_the_length_limit():
+    """Truncating first leaves a half-written tag nothing can strip."""
+    long_url = "https://example.test/" + "x" * 2100
+    document = (
+        f"<rss><channel><item><title>T</title>"
+        f"<link>https://example.test/a</link>"
+        f"<description>Read the catalogue "
+        f"&lt;a href=\"{long_url}\"&gt;here&lt;/a&gt;</description>"
+        f"</item></channel></rss>"
+    ).encode()
+
+    entry = feeds.parse_bytes(document)[0]
+
+    assert "<a href" not in entry["summary"]
+    assert "href" not in entry["summary"]
+    assert entry["summary"].startswith("Read the catalogue")
+
+
+def test_html_tables_in_summaries_become_text():
+    document = (
+        b"<rss><channel><item><title>v1.0</title>"
+        b"<link>https://example.test/v1</link>"
+        b"<description>&lt;table&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;"
+        b"checksum&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;"
+        b"</description></item></channel></rss>"
+    )
+
+    entry = feeds.parse_bytes(document)[0]
+
+    assert entry["summary"] == "checksum"

@@ -478,3 +478,105 @@ def test_rescore_records_an_audit_event(temp_db, sources, rss_feed):
         ).fetchone()["n"]
 
     assert events == 1
+
+
+def test_a_source_default_topic_classifies_releases(temp_db, sources):
+    """A release entry is titled with a version number and nothing else."""
+    body = (b"<rss><channel><item><title>v3.11.0</title>"
+            b"<link>https://example.test/v3</link></item></channel></rss>")
+    url = sources.server.serve("/rel.xml", body)
+    sources({"name": "releases", "url": url, "enabled": True,
+             "relevance_floor": 10, "default_topic": "tooling"})
+
+    run(["collect"])
+
+    with db.session() as connection:
+        assert connection.execute(
+            "SELECT topic FROM research_items"
+        ).fetchone()["topic"] == "tooling"
+
+
+def test_keywords_still_win_over_the_default_topic(temp_db, sources):
+    body = (b"<rss><channel><item>"
+            b"<title>CVE patched: remote code execution</title>"
+            b"<link>https://example.test/cve</link></item></channel></rss>")
+    url = sources.server.serve("/cve.xml", body)
+    sources({"name": "releases", "url": url, "enabled": True,
+             "default_topic": "tooling"})
+
+    run(["collect"])
+
+    with db.session() as connection:
+        assert connection.execute(
+            "SELECT topic FROM research_items"
+        ).fetchone()["topic"] == "advisories"
+
+
+def test_summaries_are_stored_as_plain_text(temp_db, sources):
+    body = (b"<rss><channel><item><title>Release</title>"
+            b"<link>https://example.test/r</link>"
+            b"<description>&lt;table&gt;&lt;tbody&gt;&lt;tr&gt;&lt;td&gt;"
+            b"sha-256 abc&lt;/td&gt;&lt;/tr&gt;&lt;/tbody&gt;&lt;/table&gt;"
+            b"</description></item></channel></rss>")
+    url = sources.server.serve("/html.xml", body)
+    sources({"name": "s", "url": url, "enabled": True})
+
+    run(["collect"])
+
+    with db.session() as connection:
+        summary = connection.execute(
+            "SELECT summary FROM research_items"
+        ).fetchone()["summary"]
+
+    assert summary == "sha-256 abc"
+
+
+def test_rescore_cleans_summaries_collected_before_stripping(temp_db,
+                                                             sources):
+    """Rows collected by an older version still hold feed markup."""
+    with db.session() as connection:
+        connection.execute(
+            """
+            INSERT INTO research_items
+                (source, title, link, canonical_link, summary, topic)
+            VALUES ('s', 'A vulnerability scanner release',
+                    'https://example.test/x', 'https://example.test/x',
+                    '<table><tbody><tr><td>raw</td></tr></tbody></table>',
+                    'tooling')
+            """
+        )
+        connection.commit()
+
+    sources({"name": "s", "url": "https://example.test/f.xml",
+             "enabled": False})
+
+    assert run(["rescore"]) == 0
+
+    with db.session() as connection:
+        assert connection.execute(
+            "SELECT summary FROM research_items"
+        ).fetchone()["summary"] == "raw"
+
+
+def test_rescore_reports_nothing_to_change_when_data_is_current(
+    temp_db, sources, rss_feed
+):
+    url = sources.server.serve("/feed.xml", rss_feed)
+    sources({"name": "s", "url": url, "enabled": True})
+    run(["collect"])
+
+    with db.session() as connection:
+        before = connection.execute(
+            "SELECT relevance, topic, summary FROM research_items "
+            "ORDER BY id"
+        ).fetchall()
+
+    run(["rescore"])
+
+    with db.session() as connection:
+        after = connection.execute(
+            "SELECT relevance, topic, summary FROM research_items "
+            "ORDER BY id"
+        ).fetchall()
+
+    assert [tuple(row) for row in before] == [tuple(row) for row in after]

@@ -47,6 +47,29 @@ secondary:
   - privilege escalation
   - remote code execution
   - denial-of-service
+  # Web protocol and application attack research, which is what the
+  # PortSwigger feed actually publishes.
+  - request smuggling
+  - desync
+  - http/2
+  - http/3
+  - websocket
+  - crlf
+  - saml
+  - oauth
+  - jwt
+  - ssrf
+  - xxe
+  - deserialization
+  - prototype pollution
+  - cache poisoning
+  - race condition
+  - header injection
+  - burp suite
+  - wordlist
+  - fuzzing
+  - web hacking
+  - payload
 
 # Items matching these are usually off-topic for our audience even when
 # they come from a security source.
@@ -87,6 +110,23 @@ topics:
     - dast
     - xss
     - sql injection
+  web_research:
+    - request smuggling
+    - desync
+    - websocket
+    - crlf
+    - saml
+    - oauth
+    - jwt
+    - ssrf
+    - xxe
+    - deserialization
+    - prototype pollution
+    - cache poisoning
+    - header injection
+    - burp suite
+    - web hacking
+    - fuzzing
   industrial:
     - ics
     - scada

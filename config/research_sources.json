@@ -9,48 +9,54 @@
       "environments": [
         "local"
       ],
-      "relevance_floor": 20
+      "relevance_floor": 20,
+      "default_topic": "advisories"
     },
     {
       "name": "PortSwigger Research",
       "url": "https://portswigger.net/research/rss",
       "enabled": true,
       "category": "appsec_research",
-      "relevance_floor": 15
+      "relevance_floor": 15,
+      "default_topic": "web_research"
     },
     {
       "name": "Nuclei Releases",
       "url": "https://github.com/projectdiscovery/nuclei/releases.atom",
       "enabled": true,
       "category": "ecosystem",
-      "relevance_floor": 10
+      "relevance_floor": 10,
+      "default_topic": "tooling"
     },
     {
       "name": "Trivy Releases",
       "url": "https://github.com/aquasecurity/trivy/releases.atom",
       "enabled": true,
       "category": "ecosystem",
-      "relevance_floor": 10
+      "relevance_floor": 10,
+      "default_topic": "tooling"
     },
     {
       "name": "OWASP ZAP Releases",
       "url": "https://github.com/zaproxy/zaproxy/releases.atom",
       "enabled": true,
       "category": "ecosystem",
-      "relevance_floor": 10
+      "relevance_floor": 10,
+      "default_topic": "tooling"
     },
     {
       "name": "ShadowSecurityScanner Releases",
       "url": "https://github.com/safetylab/ShadowSecurityScanner/releases.atom",
       "enabled": true,
       "category": "own_project",
-      "relevance_floor": 25
+      "relevance_floor": 25,
+      "default_topic": "tooling"
     }
   ],
   "limits": {
     "timeout_seconds": 15,
     "max_response_bytes": 12582912,
     "max_items_per_feed": 30,
-    "_comment": "relevance_floor: baseline a source vouches for, because an advisory feed is on topic even when an entry names only a product. environments: where the source is reachable (omit = everywhere)."
+    "_comment": "relevance_floor: baseline a source vouches for, because an advisory feed is on topic even when an entry names only a product. default_topic: topic to use when keywords find none - a release entry is titled with a version number and nothing else. environments: where the source is reachable (omit = everywhere)."
   }
 }

@@ -9,6 +9,8 @@ import html
 import re
 import xml.etree.ElementTree as ET
 
+from . import text as text_util
+
 MAX_ITEMS = 30
 MAX_TITLE = 500
 MAX_LINK = 2000
@@ -101,11 +103,15 @@ def build_entry(element):
     if not title or not link:
         return None
 
+    # Markup comes out before the length limit is applied: truncating
+    # first leaves a half-written tag that nothing can strip later.
+    summary = text_util.plain(_text_of(element, set(SUMMARY_TAGS)))
+
     return {
         "title": title[:MAX_TITLE],
         "link": link[:MAX_LINK],
         "published": _text_of(element, set(PUBLISHED_TAGS))[:MAX_PUBLISHED],
-        "summary": _text_of(element, set(SUMMARY_TAGS))[:MAX_SUMMARY],
+        "summary": summary[:MAX_SUMMARY],
     }
 
 

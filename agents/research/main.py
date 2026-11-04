@@ -21,7 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sge import config, db, feeds, net, paths, relevance, urls  # noqa: E402
+from sge import (config, db, feeds, net, paths, relevance,  # noqa: E402
+                 text as text_util, urls)
 from sge.logging_setup import get_logger  # noqa: E402
 
 AGENT = "research"
@@ -62,7 +63,7 @@ def fetch_source(source, limits):
     return feeds.parse_stream(chunks, max_items=limits["max_items"])
 
 
-def _prepare(entries, source_name, keywords, floor=0):
+def _prepare(entries, source_name, keywords, floor=0, default_topic=None):
     """Normalise entries and drop those we cannot identify or use."""
     prepared = []
     seen = set()
@@ -79,6 +80,11 @@ def _prepare(entries, source_name, keywords, floor=0):
             continue
 
         seen.add(canonical)
+
+        # Feed summaries are HTML. Storing them raw put markup into the
+        # database and into relevance scoring, where "tbody" and "href"
+        # counted as words.
+        entry = {**entry, "summary": text_util.plain(entry["summary"])}
         verdict = relevance.evaluate(entry, keywords, floor)
 
         prepared.append({
@@ -88,7 +94,8 @@ def _prepare(entries, source_name, keywords, floor=0):
             "canonical_link": canonical,
             "published": entry["published"] or None,
             "summary": entry["summary"] or None,
-            "topic": verdict["topic"],
+            "topic": (verdict["topic"] if verdict["topic"] != "general"
+                      else (default_topic or "general")),
             "relevance": verdict["relevance"],
             "excluded": int(verdict["excluded"]),
         })
@@ -198,7 +205,8 @@ def command_collect(args):
                 continue
 
             items = _prepare(entries, name, keywords,
-                             int(source.get("relevance_floor") or 0))
+                             int(source.get("relevance_floor") or 0),
+                             source.get("default_topic"))
 
             if args.dry_run:
                 log.info("%s: %d entries parsed (dry run, nothing saved)",
@@ -278,11 +286,19 @@ def command_rescore(args):
     Needed whenever keywords or a source's relevance_floor change:
     without it, already collected items keep the verdict they got under
     the old configuration.
+
+    Summaries are re-cleaned at the same time, because rows collected
+    before summaries were stripped still hold feed markup.
     """
     keywords = config.load_keywords()
+    sources = config.load_sources()["sources"]
     floors = {
         source["name"]: int(source.get("relevance_floor") or 0)
-        for source in config.load_sources()["sources"]
+        for source in sources
+    }
+    defaults = {
+        source["name"]: source.get("default_topic")
+        for source in sources
     }
 
     changed = 0
@@ -300,12 +316,20 @@ def command_rescore(args):
 
         for row in rows:
             total += 1
-            verdict = relevance.evaluate(dict(row), keywords,
+            item = dict(row)
+            cleaned = text_util.plain(item["summary"])
+            item["summary"] = cleaned
+            verdict = relevance.evaluate(item, keywords,
                                          floors.get(row["source"], 0))
+
+            if verdict["topic"] == "general":
+                verdict["topic"] = (defaults.get(row["source"])
+                                    or "general")
 
             if (verdict["relevance"] == row["relevance"]
                     and verdict["topic"] == row["topic"]
-                    and int(verdict["excluded"]) == row["excluded"]):
+                    and int(verdict["excluded"]) == row["excluded"]
+                    and cleaned == (row["summary"] or "")):
                 continue
 
             changed += 1
@@ -320,11 +344,11 @@ def command_rescore(args):
                 connection.execute(
                     """
                     UPDATE research_items
-                    SET relevance = ?, topic = ?, excluded = ?
+                    SET relevance = ?, topic = ?, excluded = ?, summary = ?
                     WHERE id = ?
                     """,
                     (verdict["relevance"], verdict["topic"],
-                     int(verdict["excluded"]), row["id"]),
+                     int(verdict["excluded"]), cleaned, row["id"]),
                 )
 
         if not args.dry_run:

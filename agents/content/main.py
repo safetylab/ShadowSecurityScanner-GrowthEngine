@@ -14,7 +14,6 @@ Usage:
 
 import argparse
 import datetime as dt
-import html
 import json
 import re
 import sys
@@ -22,7 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sge import config, db, paths, quality, render  # noqa: E402
+from sge import (config, db, paths, quality, render,  # noqa: E402
+                 text as text_util)
 from sge.logging_setup import get_logger  # noqa: E402
 
 AGENT = "content"
@@ -64,18 +64,9 @@ def _pick_items(connection, topic, limit, min_relevance):
     return connection.execute(query, params).fetchall()
 
 
-def _clean(text, limit=320):
+def _clean(value, limit=320):
     """Plain-text excerpt of a feed summary."""
-    # Unescape first, then strip: a doubly escaped "&amp;lt;script&amp;gt;"
-    # would otherwise turn back into a tag after the tags were removed.
-    unescaped = html.unescape(text or "")
-    stripped = re.sub(r"<[^>]+>", " ", unescaped)
-    collapsed = re.sub(r"\s+", " ", stripped).strip()
-
-    if len(collapsed) <= limit:
-        return collapsed
-
-    return collapsed[:limit].rsplit(" ", 1)[0] + "…"
+    return text_util.plain(value, limit)
 
 
 def _render_items(items):
