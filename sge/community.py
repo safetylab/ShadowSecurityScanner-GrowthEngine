@@ -17,22 +17,9 @@ INTENT_BONUS = {"asking": 25, "discussing": 10, "mentioning": 0}
 
 
 def load_rules():
-    import yaml
-
-    from . import paths
-
-    path = paths.CONFIG_DIR / "community.yml"
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-
-    if "rules" not in data or "queries" not in data:
-        raise config.ConfigError("community.yml: missing 'queries' or 'rules'")
-
-    if data["rules"].get("mode") != "draft_only":
-        raise config.ConfigError(
-            "community.yml: mode must stay 'draft_only'"
-        )
-
-    return data
+    """Validated community.yml. Validation lives in sge.config so that
+    `controller config-check` covers this file like every other one."""
+    return config.load_community()
 
 
 def detect_intent(text, settings):

@@ -154,3 +154,33 @@ def test_channel_mode_returns_none_for_disabled_channels():
 def test_channel_mode_reads_the_repository_configuration():
     assert config.channel_mode("reddit") == "draft_only"
     assert config.channel_mode("website") == "automatic"
+
+
+def test_community_config_must_stay_draft_only(monkeypatch, tmp_path):
+    broken = tmp_path / "config"
+    broken.mkdir()
+    (broken / "community.yml").write_text(
+        "queries:\n  hackernews: ['x']\n"
+        "rules:\n  mode: automatic\n  max_age_days: 120\n"
+        "  min_relevance: 25\n  min_topic_relevance: 25\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config.paths, "CONFIG_DIR", broken)
+
+    with pytest.raises(config.ConfigError, match="draft_only"):
+        config.load_community()
+
+
+def test_community_config_needs_at_least_one_query(monkeypatch, tmp_path):
+    broken = tmp_path / "config"
+    broken.mkdir()
+    (broken / "community.yml").write_text(
+        "queries:\n  hackernews: []\n  github: []\n"
+        "rules:\n  mode: draft_only\n  max_age_days: 120\n"
+        "  min_relevance: 25\n  min_topic_relevance: 25\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config.paths, "CONFIG_DIR", broken)
+
+    with pytest.raises(config.ConfigError, match="no queries"):
+        config.load_community()

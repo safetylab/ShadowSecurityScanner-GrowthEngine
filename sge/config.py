@@ -213,6 +213,36 @@ def load_sources():
     return data
 
 
+def load_community():
+    data = _load_file("community.yml")
+
+    queries = _require(data, "queries", dict, "community.yml")
+    rules = _require(data, "rules", dict, "community.yml")
+    where = "community.yml:rules"
+
+    if not any(queries.values()):
+        raise ConfigError("community.yml: no queries defined")
+
+    for platform, entries in queries.items():
+        if not isinstance(entries, list):
+            raise ConfigError(
+                f"community.yml:queries:{platform}: must be a list"
+            )
+
+    # The radar has no posting code; this keeps the configuration honest
+    # about that rather than implying posting could be switched on.
+    if rules.get("mode") != "draft_only":
+        raise ConfigError(f"{where}: mode must stay 'draft_only'")
+
+    for key in ("max_age_days", "min_relevance", "min_topic_relevance"):
+        value = _require(rules, key, int, where)
+
+        if value < 0:
+            raise ConfigError(f"{where}: {key} must not be negative")
+
+    return data
+
+
 def load_competitors():
     data = _load_file("competitors.yml")
     projects = _require(data, "projects", list, "competitors.yml")
@@ -236,6 +266,7 @@ LOADERS = {
     "keywords.yml": load_keywords,
     "publishing-rules.yml": load_publishing_rules,
     "competitors.yml": load_competitors,
+    "community.yml": load_community,
     "research_sources.json": load_sources,
 }
 
