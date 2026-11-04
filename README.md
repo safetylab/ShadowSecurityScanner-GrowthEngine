@@ -279,6 +279,31 @@ python agents/controller/main.py state-import --path /tmp/state.ndjson
 The `schedule:` block in the workflow stays commented out until a few
 manual runs have shown the round-trip working.
 
+## Publishing the dashboard
+
+`agents/dashboard/main.py build` writes `analytics/dashboard.html`, which
+opens from disk and is uploaded by the weekly audit as an artifact.
+
+To serve it at a URL instead, create the branch and turn Pages on once:
+
+```bash
+git worktree add --orphan -b gh-pages /tmp/pages
+cp analytics/dashboard.html /tmp/pages/index.html
+touch /tmp/pages/.nojekyll
+(cd /tmp/pages && git add -A && git commit -m 'Dashboard' \
+   && git push origin gh-pages)
+
+gh api -X POST repos/safetylab/ShadowSecurityScanner-GrowthEngine/pages \
+   -f 'source[branch]=gh-pages' -f 'source[path]=/'
+```
+
+Then remove the `if: false` from the "Publish the dashboard to Pages"
+step in `weekly-audit.yml`, and each audit refreshes the page.
+
+**This repository is public**, so the dashboard becomes public with it,
+including the open findings of every audit. If that is not wanted, keep
+the artifact and leave the step disabled.
+
 ## Tests
 
 ```bash
