@@ -108,3 +108,36 @@ def test_evaluate_reports_what_matched():
 
     assert "cve" in verdict["matched"]
     assert verdict["topic"] == "advisories"
+
+
+def test_keywords_match_whole_words_only():
+    """Substring matching scored "Statistics" for "ics" and
+    "Dispatch" for "patch"."""
+    for title in ("Statistics for metrics and physics",
+                  "Dispatch of the newsletter",
+                  "Advisories are discoverable"):
+        score, matched = relevance.score_item({
+            "title": title, "summary": "", "link": "https://a.test/x",
+        })
+
+        assert (score, matched) == (0, []), title
+
+
+def test_real_matches_still_count():
+    score, matched = relevance.score_item({
+        "title": "ICS advisory: patch available for CVE-2026-1",
+        "summary": "", "link": "https://a.test/x",
+    })
+
+    assert score > 0
+    assert "cve" in matched
+    assert "ics" in matched
+
+
+def test_hyphenated_phrases_match():
+    _score, matched = relevance.score_item({
+        "title": "denial-of-service in firmware",
+        "summary": "", "link": "https://a.test/x",
+    })
+
+    assert "denial-of-service" in matched

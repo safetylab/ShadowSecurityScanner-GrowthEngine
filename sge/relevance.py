@@ -11,6 +11,9 @@ real advisory that happens to mention a webinar keeps its score and is
 merely excluded from publication, instead of being scored down to zero.
 """
 
+import re
+from functools import lru_cache
+
 from . import config
 
 PRIMARY_WEIGHT = 25
@@ -19,6 +22,21 @@ TITLE_BONUS = 10
 MAX_SCORE = 100
 
 DEFAULT_THRESHOLD = 30
+
+
+@lru_cache(maxsize=512)
+def _matcher(keyword):
+    """Word-boundary matcher for a keyword.
+
+    Substring matching produced false positives that mattered:
+    "Statistics" matched "ics" and "Dispatch" matched "patch". Phrases
+    work the same way, since \b anchors at each end of the phrase.
+    """
+    return re.compile(rf"\b{re.escape(keyword.lower())}\b")
+
+
+def _hits(keyword, text):
+    return bool(_matcher(keyword).search(text))
 
 
 def _haystacks(item):
@@ -45,14 +63,14 @@ def score_item(item, keywords=None, floor=0):
     score = 0
 
     for keyword in data["primary"]:
-        if keyword.lower() in full:
+        if _hits(keyword, full):
             matched.append(keyword)
             score += PRIMARY_WEIGHT
-            if keyword.lower() in title:
+            if _hits(keyword, title):
                 score += TITLE_BONUS
 
     for keyword in data["secondary"]:
-        if keyword.lower() in full:
+        if _hits(keyword, full):
             matched.append(keyword)
             score += SECONDARY_WEIGHT
 
@@ -66,7 +84,7 @@ def exclusions(item, keywords=None):
 
     return [
         keyword for keyword in data["negative"]
-        if keyword.lower() in full
+        if _hits(keyword, full)
     ]
 
 
@@ -79,7 +97,7 @@ def classify_item(item, keywords=None):
     best_hits = 0
 
     for topic, terms in data["topics"].items():
-        hits = sum(1 for term in terms if str(term).lower() in full)
+        hits = sum(1 for term in terms if _hits(str(term), full))
 
         if hits > best_hits:
             best_topic = topic

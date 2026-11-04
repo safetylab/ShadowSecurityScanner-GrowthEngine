@@ -272,6 +272,71 @@ def command_list(args):
     return 0
 
 
+def command_rescore(args):
+    """Recompute relevance, topic and exclusion for stored items.
+
+    Needed whenever keywords or a source's relevance_floor change:
+    without it, already collected items keep the verdict they got under
+    the old configuration.
+    """
+    keywords = config.load_keywords()
+    floors = {
+        source["name"]: int(source.get("relevance_floor") or 0)
+        for source in config.load_sources()["sources"]
+    }
+
+    changed = 0
+    total = 0
+
+    with db.session() as connection:
+        db.migrate(connection)
+        rows = connection.execute(
+            """
+            SELECT id, source, title, summary, link, topic, relevance,
+                   excluded
+            FROM research_items
+            """
+        ).fetchall()
+
+        for row in rows:
+            total += 1
+            verdict = relevance.evaluate(dict(row), keywords,
+                                         floors.get(row["source"], 0))
+
+            if (verdict["relevance"] == row["relevance"]
+                    and verdict["topic"] == row["topic"]
+                    and int(verdict["excluded"]) == row["excluded"]):
+                continue
+
+            changed += 1
+
+            if args.verbose:
+                log.info("%s: relevance %d -> %d, topic %s -> %s",
+                         row["title"][:50], row["relevance"],
+                         verdict["relevance"], row["topic"],
+                         verdict["topic"])
+
+            if not args.dry_run:
+                connection.execute(
+                    """
+                    UPDATE research_items
+                    SET relevance = ?, topic = ?, excluded = ?
+                    WHERE id = ?
+                    """,
+                    (verdict["relevance"], verdict["topic"],
+                     int(verdict["excluded"]), row["id"]),
+                )
+
+        if not args.dry_run:
+            db.log_event(connection, "items_rescored", AGENT, None,
+                         {"changed": changed, "total": total})
+            connection.commit()
+
+    suffix = " (dry run, nothing saved)" if args.dry_run else ""
+    log.info("Rescored %d of %d items%s", changed, total, suffix)
+    return 0
+
+
 def command_report(args):
     since = (
         dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=args.days)
@@ -414,6 +479,12 @@ def build_parser():
     report.add_argument("--run-id", default=None,
                         help="report on a specific run (default: latest)")
 
+    rescore = commands.add_parser(
+        "rescore", help="recompute relevance after a keyword change"
+    )
+    rescore.add_argument("--dry-run", action="store_true")
+    rescore.add_argument("--verbose", action="store_true")
+
     commands.add_parser("sources", help="list configured sources")
 
     return parser
@@ -423,6 +494,7 @@ HANDLERS = {
     "collect": command_collect,
     "list": command_list,
     "report": command_report,
+    "rescore": command_rescore,
     "sources": command_sources,
 }
 

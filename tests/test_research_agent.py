@@ -341,7 +341,7 @@ def test_skipped_sources_do_not_make_the_run_fail(temp_db, sources,
 
 def test_source_floor_is_applied(temp_db, sources):
     body = (b"<rss><channel><item><title>Kiloview E3 NDI Encoder</title>"
-            b"<link>https://example.test/ics</link></item></channel></rss>")
+            b"<link>https://example.test/item</link></item></channel></rss>")
     url = sources.server.serve("/ics.xml", body)
     sources({"name": "advisories", "url": url, "enabled": True,
              "relevance_floor": 20})
@@ -414,3 +414,67 @@ def test_list_hides_excluded_items_by_default(temp_db, sources, capsys):
 
     run(["list", "--include-excluded"])
     assert "Webinar" in capsys.readouterr().out
+
+
+def test_rescore_updates_items_after_a_keyword_change(temp_db, sources,
+                                                      monkeypatch):
+    """Without this, already collected items keep their old verdict."""
+    body = (b"<rss><channel><item><title>Kiloview E3 NDI Encoder</title>"
+            b"<link>https://example.test/item</link></item></channel></rss>")
+    url = sources.server.serve("/ics.xml", body)
+    sources({"name": "s", "url": url, "enabled": True})
+    run(["collect"])
+
+    with db.session() as connection:
+        before = connection.execute(
+            "SELECT relevance FROM research_items"
+        ).fetchone()["relevance"]
+
+    assert before == 0
+
+    # The source now vouches for its entries.
+    sources({"name": "s", "url": url, "enabled": True,
+             "relevance_floor": 20})
+
+    assert run(["rescore"]) == 0
+
+    with db.session() as connection:
+        after = connection.execute(
+            "SELECT relevance FROM research_items"
+        ).fetchone()["relevance"]
+
+    assert after == 20
+
+
+def test_rescore_dry_run_changes_nothing(temp_db, sources):
+    body = (b"<rss><channel><item><title>Kiloview E3 NDI Encoder</title>"
+            b"<link>https://example.test/item</link></item></channel></rss>")
+    url = sources.server.serve("/ics.xml", body)
+    sources({"name": "s", "url": url, "enabled": True})
+    run(["collect"])
+    sources({"name": "s", "url": url, "enabled": True,
+             "relevance_floor": 20})
+
+    assert run(["rescore", "--dry-run"]) == 0
+
+    with db.session() as connection:
+        relevance = connection.execute(
+            "SELECT relevance FROM research_items"
+        ).fetchone()["relevance"]
+
+    assert relevance == 0
+
+
+def test_rescore_records_an_audit_event(temp_db, sources, rss_feed):
+    url = sources.server.serve("/feed.xml", rss_feed)
+    sources({"name": "s", "url": url, "enabled": True})
+    run(["collect"])
+    run(["rescore"])
+
+    with db.session() as connection:
+        events = connection.execute(
+            "SELECT COUNT(*) AS n FROM audit_log "
+            "WHERE event = 'items_rescored'"
+        ).fetchone()["n"]
+
+    assert events == 1
