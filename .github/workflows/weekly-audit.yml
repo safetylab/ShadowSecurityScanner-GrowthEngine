@@ -1,0 +1,134 @@
+# SEO and repository audits, plus the metrics and advice derived from
+# them. Everything here is read-only against the outside world: the only
+# write is the engine's own state branch.
+name: Weekly audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Mondays 07:23 UTC, after the daily collection has run.
+    - cron: '23 7 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sge-state
+  cancel-in-progress: false
+
+env:
+  STATE_FILE: .state/state/research_keys.ndjson
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out the state branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: state
+          path: .state
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Validate configuration
+        run: python agents/controller/main.py config-check
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Initialise the database
+        run: python agents/controller/main.py init
+
+      - name: Restore collection state
+        run: |
+          python agents/controller/main.py state-import \
+            --path "$STATE_FILE" --allow-missing
+
+      - name: Audit the site
+        run: python agents/seo/main.py audit --check-links
+
+      - name: Site report
+        run: python agents/seo/main.py report
+
+      - name: Audit the repository
+        env:
+          # Read-only use: raises the API rate limit, no write scope.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python agents/github/main.py audit
+
+      - name: Repository report
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python agents/github/main.py report
+
+      - name: Scan community threads
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python agents/community/main.py scan
+
+      - name: Record metrics
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python agents/analytics/main.py collect
+
+      - name: Weekly report
+        run: python agents/analytics/main.py report --period weekly
+
+      - name: Derive recommendations
+        run: python agents/optimization/main.py analyse
+
+      - name: Optimisation report
+        run: python agents/optimization/main.py report
+
+      - name: Build the dashboard
+        run: python agents/dashboard/main.py build
+
+      - name: Save state
+        run: |
+          python agents/controller/main.py state-export --path "$STATE_FILE"
+
+      - name: Commit state
+        working-directory: .state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email \
+            '41898282+github-actions[bot]@users.noreply.github.com'
+
+          if git diff --quiet -- state/; then
+            echo 'State unchanged, nothing to commit.'
+            exit 0
+          fi
+
+          git add state/
+          git commit -m "State after audit ${{ github.run_id }}"
+          git push origin HEAD:state
+
+      - name: Upload reports and dashboard
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: audit-output
+          path: |
+            analytics/
+            logs/
+          if-no-files-found: ignore
+          retention-days: 30

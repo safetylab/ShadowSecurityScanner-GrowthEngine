@@ -1,0 +1,86 @@
+# Drafts a digest from what collection has found. Manual only: a draft
+# is a claim about reality that a person has to check, and nothing here
+# publishes it. Distribution to owned channels is a separate, manual
+# step; external communities are always posted by hand.
+name: Content drafts
+
+on:
+  workflow_dispatch:
+    inputs:
+      topic:
+        description: Topic to draft (blank = any)
+        type: string
+        default: advisories
+      limit:
+        description: Items to include
+        type: string
+        default: '5'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sge-state
+  cancel-in-progress: false
+
+env:
+  STATE_FILE: .state/state/research_keys.ndjson
+
+jobs:
+  draft:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out the state branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: state
+          path: .state
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m pytest
+
+      - name: Initialise the database
+        run: python agents/controller/main.py init
+
+      - name: Restore collection state
+        run: |
+          python agents/controller/main.py state-import \
+            --path "$STATE_FILE" --allow-missing
+
+      - name: Collect fresh items
+        run: python agents/research/main.py collect
+
+      - name: Draft a digest
+        run: |
+          python agents/content/main.py draft \
+            --topic '${{ inputs.topic }}' --limit '${{ inputs.limit }}'
+
+      - name: Show the queue
+        run: python agents/distribution/main.py queue
+
+      - name: Upload drafts for review
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: drafts
+          path: |
+            content/drafts/
+            content/social/
+          if-no-files-found: error
+          retention-days: 14
