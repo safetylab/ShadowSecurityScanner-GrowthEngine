@@ -1,0 +1,63 @@
+# Where to look for conversations the project is genuinely useful in,
+# and the rules for deciding whether taking part is appropriate.
+#
+# The radar never comments, never sends a message and never votes. It
+# collects public threads, scores how relevant they are and drafts a
+# reply for a human to judge.
+
+# Quoted phrases are exact: the Hacker News search is otherwise a fuzzy
+# OR, and an unquoted "openvas alternative" returns threads about OpenAI.
+queries:
+  hackernews:
+    - '"vulnerability scanner"'
+    - '"network scanner"'
+    - '"penetration testing"'
+    - '"security scanner"'
+    - '"nessus"'
+    - '"openvas"'
+  github:
+    - "vulnerability scanner recommendation in:title is:issue"
+    - "open source alternative nessus in:title"
+    - "SARIF output scanner in:title is:issue"
+
+# A thread where someone is asking what to use is an invitation. A
+# thread that merely mentions the topic is not, and a thread about a
+# specific competitor is somebody else's house.
+intent_signals:
+  asking:
+    - recommend
+    - alternative
+    - which tool
+    - looking for
+    - any suggestions
+    - what do you use
+    - best way to
+    - how do i scan
+  discussing:
+    - comparison
+    - review
+    - benchmark
+    - experience with
+
+# Reasons to stay out, whatever the relevance score says.
+avoid:
+  - hiring
+  - job
+  - we are looking for candidates
+  - promotion
+  - giveaway
+  - black friday
+
+rules:
+  # Threads older than this are closed conversations: a reply reads as
+  # necromancy and helps nobody.
+  max_age_days: 120
+  min_relevance: 25
+  # Relevance the thread must have on its own subject matter, before any
+  # bonus for someone asking a question. Without this floor a thread
+  # about anything at all qualifies as long as it says "alternative".
+  min_topic_relevance: 25
+  # Never auto-post. Changing this does not enable posting: the agent
+  # has no posting code at all.
+  mode: draft_only
+  require_disclosure: true
