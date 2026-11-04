@@ -5,42 +5,52 @@
       "url": "https://www.cisa.gov/cybersecurity-advisories/all.xml",
       "enabled": true,
       "category": "advisories",
-      "note": "Multi-megabyte feed; relies on streaming parse with max_items. Answers HTTP 403 to GitHub Actions runners (datacentre IPs), so this source only collects from a local or residential network."
+      "note": "Multi-megabyte feed; relies on streaming parse with max_items. Answers HTTP 403 to GitHub Actions runners (datacentre IPs), hence environments: local.",
+      "environments": [
+        "local"
+      ],
+      "relevance_floor": 20
     },
     {
       "name": "PortSwigger Research",
       "url": "https://portswigger.net/research/rss",
       "enabled": true,
-      "category": "appsec_research"
+      "category": "appsec_research",
+      "relevance_floor": 15
     },
     {
       "name": "Nuclei Releases",
       "url": "https://github.com/projectdiscovery/nuclei/releases.atom",
       "enabled": true,
-      "category": "ecosystem"
+      "category": "ecosystem",
+      "relevance_floor": 10
     },
     {
       "name": "Trivy Releases",
       "url": "https://github.com/aquasecurity/trivy/releases.atom",
       "enabled": true,
-      "category": "ecosystem"
+      "category": "ecosystem",
+      "relevance_floor": 10
     },
     {
       "name": "OWASP ZAP Releases",
       "url": "https://github.com/zaproxy/zaproxy/releases.atom",
       "enabled": true,
-      "category": "ecosystem"
+      "category": "ecosystem",
+      "relevance_floor": 10
     },
     {
       "name": "ShadowSecurityScanner Releases",
       "url": "https://github.com/safetylab/ShadowSecurityScanner/releases.atom",
       "enabled": true,
-      "category": "own_project"
+      "category": "own_project",
+      "relevance_floor": 25
     }
   ],
   "limits": {
     "timeout_seconds": 15,
     "max_response_bytes": 12582912,
-    "max_items_per_feed": 30
+    "max_items_per_feed": 30,
+    "_comment": "relevance_floor: baseline a source vouches for, because an advisory feed is on topic even when an entry names only a product. environments: where the source is reachable (omit = everywhere)."
   }
 }

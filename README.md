@@ -26,7 +26,7 @@ pip install -r requirements-dev.txt
 
 python agents/controller/main.py config-check   # validate configuration
 python agents/controller/main.py init           # create the database
-python -m pytest                                # 140 tests, no network
+python -m pytest                                # 168 tests, no network
 ```
 
 Then collect research and build a draft:
@@ -70,9 +70,11 @@ scheduled job never queues the same work twice.
 ### Market Research
 
 ```bash
-python agents/research/main.py sources
+python agents/research/main.py sources               # also shows reachability
 python agents/research/main.py collect --dry-run     # nothing is written
 python agents/research/main.py collect --source "Trivy Releases"
+python agents/research/main.py list --all            # keep same-title items
+python agents/research/main.py list --include-excluded
 ```
 
 Sources live in [`config/research_sources.json`](config/research_sources.json).
@@ -88,7 +90,23 @@ Guarantees:
   did;
 - a source that answers with an HTML error page is a failure, not an
   empty success;
-- documents declaring a DTD or entity are refused before parsing.
+- documents declaring a DTD or entity are refused before parsing;
+- each run gets a `run_id`, so a report can state what *that* run added
+  rather than everything fetched in a time window.
+
+Two per-source settings in `research_sources.json` earn their place:
+
+- `relevance_floor` — the baseline a source vouches for. An advisory feed
+  is on topic by construction, and "Kiloview E3 NDI Encoder" is a real
+  advisory that matches none of our keywords.
+- `environments` — where the source is reachable. CISA answers HTTP 403
+  to Actions runners, so it is marked `[local]` and shows up as
+  `skipped`, not `failed`, on CI.
+
+Relevance and publishability are separate. The score says how close an
+item is to what the project is about; `excluded` says it is not digest
+material (a webinar, a hiring post). A real advisory that also mentions a
+webinar keeps its score and is merely kept out of drafts.
 
 ### Content Factory
 
@@ -145,19 +163,37 @@ flags cannot be silently switched off.
 
 ## State on CI
 
-A GitHub Actions runner is temporary, so `database/growth.db` does not
-survive between independent runs, and the database is deliberately not
-committed. Until state is persisted somewhere safe, scheduled collection
-stays disabled: `.github/workflows/daily-research.yml` is
-`workflow_dispatch` only and defaults to `--dry-run`. The workflow also
-uses a single `concurrency` group, because SQLite tolerates exactly one
-writer.
+A runner is temporary: `database/growth.db` does not survive between runs
+and is deliberately not committed. Without state, every run would report
+all ~70 collected items as new.
+
+State therefore travels as NDJSON on the orphan `state` branch
+(`state/research_keys.ndjson`): one record per line, sorted by canonical
+URL so the diff stays small, holding the keys needed to recognise an item
+again but not article bodies — those are ~85% of the bytes and are only
+needed inside the run that collected them. Roughly 400 bytes per item,
+about 10 MB a year at the current rate.
+
+The workflow does `state-import` → `collect` → `state-export` → commit,
+and only the collecting job gets `contents: write`, pushing only to
+`state`. A single `concurrency` group keeps writers serialised, because
+SQLite and a git branch both tolerate exactly one.
+
+Locally the same commands move state between machines:
+
+```bash
+python agents/controller/main.py state-export --path /tmp/state.ndjson
+python agents/controller/main.py state-import --path /tmp/state.ndjson
+```
+
+The `schedule:` block in the workflow stays commented out until a few
+manual runs have shown the round-trip working.
 
 ## Tests
 
 ```bash
-python -m pytest            # whole suite
-python -m pytest -k feeds   # one area
+python -m pytest            # whole suite (168 tests)
+python -m pytest -k state   # one area
 ```
 
 The suite never touches the network: feed behaviour — timeouts,

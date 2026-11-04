@@ -44,7 +44,7 @@ def _pick_items(connection, topic, limit, min_relevance):
     query = """
         SELECT source, title, link, summary, topic, relevance, published
         FROM research_items
-        WHERE relevance >= ?
+        WHERE relevance >= ? AND excluded = 0
     """
     params = [min_relevance]
 

@@ -13,8 +13,10 @@ Usage:
 
 import argparse
 import datetime as dt
+import os
 import sys
 import time
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -25,6 +27,15 @@ from sge.logging_setup import get_logger  # noqa: E402
 AGENT = "research"
 
 log = get_logger("sge.research")
+
+
+def environment():
+    """Where we are running: sources may be reachable from one and not
+    the other. CISA answers HTTP 403 to Actions runners."""
+    if os.environ.get("SGE_ENV"):
+        return os.environ["SGE_ENV"]
+
+    return "ci" if os.environ.get("GITHUB_ACTIONS") == "true" else "local"
 
 
 def _limits():
@@ -51,7 +62,7 @@ def fetch_source(source, limits):
     return feeds.parse_stream(chunks, max_items=limits["max_items"])
 
 
-def _prepare(entries, source_name, keywords):
+def _prepare(entries, source_name, keywords, floor=0):
     """Normalise entries and drop those we cannot identify or use."""
     prepared = []
     seen = set()
@@ -68,7 +79,7 @@ def _prepare(entries, source_name, keywords):
             continue
 
         seen.add(canonical)
-        verdict = relevance.evaluate(entry, keywords)
+        verdict = relevance.evaluate(entry, keywords, floor)
 
         prepared.append({
             "source": source_name,
@@ -79,6 +90,7 @@ def _prepare(entries, source_name, keywords):
             "summary": entry["summary"] or None,
             "topic": verdict["topic"],
             "relevance": verdict["relevance"],
+            "excluded": int(verdict["excluded"]),
         })
 
     return prepared
@@ -93,9 +105,9 @@ def _store(connection, items):
             """
             INSERT OR IGNORE INTO research_items
                 (source, title, link, canonical_link, published, summary,
-                 topic, relevance)
+                 topic, relevance, excluded)
             VALUES (:source, :title, :link, :canonical_link, :published,
-                    :summary, :topic, :relevance)
+                    :summary, :topic, :relevance, :excluded)
             """,
             item,
         )
@@ -104,14 +116,16 @@ def _store(connection, items):
     return new
 
 
-def _record_run(connection, source, status, seen, new, started, error=None):
+def _record_run(connection, run_id, source, status, seen, new, started,
+                error=None):
     connection.execute(
         """
         INSERT INTO source_runs
-            (source, status, items_seen, items_new, duration_ms, error)
-        VALUES (?, ?, ?, ?, ?, ?)
+            (run_id, source, status, items_seen, items_new, duration_ms,
+             error)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (source, status, seen, new,
+        (run_id, source, status, seen, new,
          int((time.monotonic() - started) * 1000),
          error[:500] if error else None),
     )
@@ -121,6 +135,8 @@ def command_collect(args):
     sources = config.load_sources()["sources"]
     limits = _limits()
     keywords = config.load_keywords()
+    env = environment()
+    run_id = uuid.uuid4().hex[:12]
 
     if args.source:
         sources = [s for s in sources if s["name"] == args.source]
@@ -131,6 +147,9 @@ def command_collect(args):
 
     total_new = 0
     failures = 0
+    attempted = 0
+
+    log.info("Run %s in environment '%s'", run_id, env)
 
     with db.session() as connection:
         db.migrate(connection)
@@ -138,20 +157,34 @@ def command_collect(args):
         for source in sources:
             name = source["name"]
             started = time.monotonic()
+            allowed = source.get("environments")
 
             if not source.get("enabled"):
                 log.info("%s: disabled, skipping", name)
-                _record_run(connection, name, "skipped", 0, 0, started)
+                _record_run(connection, run_id, name, "skipped", 0, 0,
+                            started, "disabled")
                 connection.commit()
                 continue
+
+            # A source that is known to be unreachable from here is
+            # skipped, not failed: a 403 we already expect is not news.
+            if allowed and env not in allowed:
+                log.info("%s: not available in environment '%s', skipping",
+                         name, env)
+                _record_run(connection, run_id, name, "skipped", 0, 0,
+                            started, f"not available in '{env}'")
+                connection.commit()
+                continue
+
+            attempted += 1
 
             try:
                 entries = fetch_source(source, limits)
             except (net.FetchError, feeds.FeedError) as error:
                 failures += 1
                 log.warning("%s: failed, %s", name, error)
-                _record_run(connection, name, "failed", 0, 0, started,
-                            str(error))
+                _record_run(connection, run_id, name, "failed", 0, 0,
+                            started, str(error))
                 db.log_event(connection, "source_failed", AGENT, None,
                              {"source": name, "error": str(error)[:200]})
                 connection.commit()
@@ -159,45 +192,60 @@ def command_collect(args):
             except Exception as error:  # defensive: one source cannot
                 failures += 1       # be allowed to abort the whole run
                 log.exception("%s: unexpected failure", name)
-                _record_run(connection, name, "failed", 0, 0, started,
-                            repr(error))
+                _record_run(connection, run_id, name, "failed", 0, 0,
+                            started, repr(error))
                 connection.commit()
                 continue
 
-            items = _prepare(entries, name, keywords)
+            items = _prepare(entries, name, keywords,
+                             int(source.get("relevance_floor") or 0))
 
             if args.dry_run:
                 log.info("%s: %d entries parsed (dry run, nothing saved)",
                          name, len(items))
-                _record_run(connection, name, "ok", len(items), 0, started)
+                _record_run(connection, run_id, name, "ok", len(items), 0,
+                            started)
                 connection.commit()
                 continue
 
             new = _store(connection, items)
             total_new += new
-            _record_run(connection, name, "ok", len(items), new, started)
+            _record_run(connection, run_id, name, "ok", len(items), new,
+                        started)
             db.log_event(connection, "source_collected", AGENT, None,
                          {"source": name, "seen": len(items), "new": new})
             connection.commit()
 
             log.info("%s: %d entries, %d new", name, len(items), new)
 
-    log.info("Collection finished: %d new items, %d source failures",
-             total_new, failures)
+    log.info("Run %s finished: %d new items, %d of %d sources failed",
+             run_id, total_new, failures, attempted)
 
     # A partial run is still a successful run; only a total failure is an
     # error, so scheduled jobs do not go red because one feed moved.
-    return 1 if failures and failures == len(sources) else 0
+    return 1 if attempted and failures == attempted else 0
 
 
 def command_list(args):
+    # Advisory feeds reuse headlines ("CISA Adds Two Known Exploited
+    # Vulnerabilities to Catalog") across different URLs, so the default
+    # view collapses them and --all shows every row.
+    grouping = "" if args.all else " GROUP BY title"
+    visibility = "" if args.include_excluded else " AND excluded = 0"
+
     with db.session() as connection:
         db.migrate(connection)
         rows = connection.execute(
-            """
-            SELECT source, title, link, published, topic, relevance
+            f"""
+            SELECT source, title, link, published, topic, relevance,
+                   excluded,
+                   -- A correlated subquery, because a bare COUNT(*)
+                   -- without GROUP BY collapses the whole table into
+                   -- one row when --all is used.
+                   (SELECT COUNT(*) FROM research_items AS same
+                    WHERE same.title = research_items.title) AS variants
             FROM research_items
-            WHERE relevance >= ?
+            WHERE relevance >= ?{visibility}{grouping}
             ORDER BY relevance DESC, id DESC
             LIMIT ?
             """,
@@ -209,7 +257,14 @@ def command_list(args):
         return 0
 
     for row in rows:
-        print(f"\n[{row['source']}] {row['title']}")
+        flags = []
+        if row["excluded"]:
+            flags.append("excluded")
+        if not args.all and row["variants"] > 1:
+            flags.append(f"+{row['variants'] - 1} same-title")
+
+        suffix = f"  [{', '.join(flags)}]" if flags else ""
+        print(f"\n[{row['source']}] {row['title']}{suffix}")
         print(f"  topic={row['topic']} relevance={row['relevance']} "
               f"published={row['published'] or 'unknown'}")
         print(f"  {row['link']}")
@@ -225,57 +280,81 @@ def command_report(args):
     with db.session() as connection:
         db.migrate(connection)
 
+        # The report is about one run. Earlier versions counted every
+        # row fetched inside a time window, which reported "100 new"
+        # after a run that added nothing.
+        latest = connection.execute(
+            "SELECT run_id FROM source_runs WHERE run_id IS NOT NULL "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        run_id = args.run_id or (latest["run_id"] if latest else None)
+
+        runs = connection.execute(
+            """
+            SELECT source, status, items_seen, items_new, duration_ms, error
+            FROM source_runs
+            WHERE run_id IS ?
+            ORDER BY id
+            """,
+            (run_id,),
+        ).fetchall()
+
+        added = sum(run["items_new"] for run in runs)
+
         items = connection.execute(
             """
-            SELECT source, title, link, topic, relevance
+            SELECT source, title, link, topic, relevance, excluded
             FROM research_items
             WHERE fetched_at >= ?
+            GROUP BY title
             ORDER BY relevance DESC, id DESC
             """,
             (since,),
         ).fetchall()
 
-        runs = connection.execute(
-            """
-            SELECT source, status, items_seen, items_new, error
-            FROM source_runs
-            WHERE started_at >= ?
-            ORDER BY started_at DESC
-            """,
-            (since,),
-        ).fetchall()
+        total = connection.execute(
+            "SELECT COUNT(*) AS n FROM research_items"
+        ).fetchone()["n"]
 
     today = dt.date.today().isoformat()
+    publishable = [item for item in items if not item["excluded"]]
+
     lines = [
         f"# Research report {today}",
         "",
-        f"Window: last {args.days} day(s). New items: {len(items)}.",
+        f"Run `{run_id or 'none'}` added **{added}** items.",
+        f"In the database: {total} items, "
+        f"{len(items)} fetched in the last {args.days} day(s) "
+        f"({len(publishable)} of them publishable).",
         "",
-        "## Source runs",
+        "## This run, by source",
         "",
     ]
 
     for run in runs:
         detail = f" — {run['error']}" if run["error"] else ""
         lines.append(
-            f"- {run['source']}: {run['status']}, seen {run['items_seen']}, "
-            f"new {run['items_new']}{detail}"
+            f"- {run['source']}: {run['status']}, seen "
+            f"{run['items_seen']}, new {run['items_new']}, "
+            f"{run['duration_ms']} ms{detail}"
         )
 
     if not runs:
-        lines.append("- no runs in this window")
+        lines.append("- no collection run recorded yet")
 
-    lines += ["", "## New items by relevance", ""]
+    lines += ["", f"## Fetched in the last {args.days} day(s), by relevance",
+              ""]
 
     for item in items:
+        mark = " _(excluded from digests)_" if item["excluded"] else ""
         lines.append(
             f"- **{item['title']}** "
             f"({item['topic']}, relevance {item['relevance']}) — "
-            f"<{item['link']}> — source: {item['source']}"
+            f"<{item['link']}> — source: {item['source']}{mark}"
         )
 
     if not items:
-        lines.append("- no new items")
+        lines.append("- nothing fetched in this window")
 
     report = "\n".join(lines) + "\n"
 
@@ -289,9 +368,24 @@ def command_report(args):
 
 
 def command_sources(_args):
+    env = environment()
+    print(f"Current environment: {env}\n")
+
     for source in config.load_sources()["sources"]:
-        state = "enabled" if source.get("enabled") else "disabled"
-        print(f"{state:9} {source['name']}  {source['url']}")
+        allowed = source.get("environments")
+
+        if not source.get("enabled"):
+            state = "disabled"
+        elif allowed and env not in allowed:
+            state = "unavailable"
+        else:
+            state = "enabled"
+
+        scope = f" (only {', '.join(allowed)})" if allowed else ""
+        floor = source.get("relevance_floor")
+        baseline = f" floor={floor}" if floor else ""
+        print(f"{state:12} {source['name']}{scope}{baseline}")
+        print(f"{'':12} {source['url']}")
 
     return 0
 
@@ -310,9 +404,15 @@ def build_parser():
     listing = commands.add_parser("list", help="show stored items")
     listing.add_argument("--limit", type=int, default=10)
     listing.add_argument("--min-relevance", type=int, default=0)
+    listing.add_argument("--all", action="store_true",
+                         help="do not collapse items sharing a title")
+    listing.add_argument("--include-excluded", action="store_true",
+                         help="also show items excluded from digests")
 
     report = commands.add_parser("report", help="write a markdown report")
     report.add_argument("--days", type=int, default=1)
+    report.add_argument("--run-id", default=None,
+                        help="report on a specific run (default: latest)")
 
     commands.add_parser("sources", help="list configured sources")
 

@@ -251,3 +251,166 @@ def test_report_handles_an_empty_window(temp_db, monkeypatch, tmp_path):
     monkeypatch.setattr(research.paths, "REPORTS_DIR", tmp_path / "reports")
 
     assert run(["report", "--days", "1"]) == 0
+
+
+def test_run_id_groups_one_run(temp_db, sources, rss_feed, atom_feed):
+    url_a = sources.server.serve("/a.xml", rss_feed)
+    url_b = sources.server.serve("/b.xml", atom_feed)
+    sources({"name": "a", "url": url_a, "enabled": True},
+            {"name": "b", "url": url_b, "enabled": True})
+
+    run(["collect"])
+    run(["collect"])
+
+    with db.session() as connection:
+        ids = [
+            row["run_id"]
+            for row in connection.execute(
+                "SELECT DISTINCT run_id FROM source_runs"
+            )
+        ]
+        per_run = connection.execute(
+            "SELECT run_id, COUNT(*) AS n FROM source_runs "
+            "GROUP BY run_id"
+        ).fetchall()
+
+    assert len(ids) == 2
+    assert all(row["n"] == 2 for row in per_run)
+
+
+def test_report_counts_only_the_latest_run(temp_db, sources, rss_feed,
+                                           monkeypatch, tmp_path):
+    """The old report said "100 new" after a run that added nothing."""
+    monkeypatch.setattr(research.paths, "REPORTS_DIR", tmp_path / "reports")
+    url = sources.server.serve("/feed.xml", rss_feed)
+    sources({"name": "local", "url": url, "enabled": True})
+
+    run(["collect"])          # adds 2
+    run(["collect"])          # adds 0
+    run(["report", "--days", "1"])
+
+    text = next((tmp_path / "reports").glob("*.md")).read_text("utf-8")
+
+    assert "added **0** items" in text
+    # One line per source for this run only, not every run in the window.
+    assert text.count("- local:") == 1
+
+
+def test_source_unavailable_in_this_environment_is_skipped(
+    temp_db, sources, rss_feed, monkeypatch
+):
+    """CISA answers 403 to CI: an expected block is not a failure."""
+    monkeypatch.setenv("SGE_ENV", "ci")
+    url = sources.server.serve("/feed.xml", rss_feed)
+    sources({"name": "local-only", "url": url, "enabled": True,
+             "environments": ["local"]})
+
+    assert run(["collect"]) == 0
+    assert count_items() == 0
+    assert runs_by_status() == {"local-only": "skipped"}
+
+    with db.session() as connection:
+        error = connection.execute(
+            "SELECT error FROM source_runs"
+        ).fetchone()["error"]
+
+    assert "ci" in error
+
+
+def test_source_is_collected_in_its_own_environment(
+    temp_db, sources, rss_feed, monkeypatch
+):
+    monkeypatch.setenv("SGE_ENV", "local")
+    url = sources.server.serve("/feed.xml", rss_feed)
+    sources({"name": "local-only", "url": url, "enabled": True,
+             "environments": ["local"]})
+
+    assert run(["collect"]) == 0
+    assert count_items() == 2
+
+
+def test_skipped_sources_do_not_make_the_run_fail(temp_db, sources,
+                                                  monkeypatch):
+    """Only sources we actually tried count towards failure."""
+    monkeypatch.setenv("SGE_ENV", "ci")
+    sources({"name": "local-only", "url": "https://example.test/f.xml",
+             "enabled": True, "environments": ["local"]})
+
+    assert run(["collect"]) == 0
+
+
+def test_source_floor_is_applied(temp_db, sources):
+    body = (b"<rss><channel><item><title>Kiloview E3 NDI Encoder</title>"
+            b"<link>https://example.test/ics</link></item></channel></rss>")
+    url = sources.server.serve("/ics.xml", body)
+    sources({"name": "advisories", "url": url, "enabled": True,
+             "relevance_floor": 20})
+
+    run(["collect"])
+
+    with db.session() as connection:
+        row = connection.execute(
+            "SELECT relevance, topic FROM research_items"
+        ).fetchone()
+
+    assert row["relevance"] == 20
+
+
+def test_excluded_items_are_stored_but_flagged(temp_db, sources):
+    body = (b"<rss><channel><item>"
+            b"<title>Webinar about vulnerability scanning</title>"
+            b"<link>https://example.test/webinar</link></item>"
+            b"</channel></rss>")
+    url = sources.server.serve("/w.xml", body)
+    sources({"name": "s", "url": url, "enabled": True})
+
+    run(["collect"])
+
+    with db.session() as connection:
+        row = connection.execute(
+            "SELECT relevance, excluded FROM research_items"
+        ).fetchone()
+
+    assert row["excluded"] == 1
+    assert row["relevance"] > 0
+
+
+def test_list_collapses_items_sharing_a_title(temp_db, sources, capsys):
+    """Advisory feeds reuse headlines across different URLs."""
+    body = (b"<rss><channel>"
+            b"<item><title>CISA Adds Two Vulnerabilities</title>"
+            b"<link>https://example.test/a1</link></item>"
+            b"<item><title>CISA Adds Two Vulnerabilities</title>"
+            b"<link>https://example.test/a2</link></item>"
+            b"</channel></rss>")
+    url = sources.server.serve("/dup.xml", body)
+    sources({"name": "s", "url": url, "enabled": True,
+             "relevance_floor": 20})
+    run(["collect"])
+    capsys.readouterr()
+
+    run(["list"])
+    collapsed = capsys.readouterr().out
+
+    run(["list", "--all"])
+    everything = capsys.readouterr().out
+
+    assert collapsed.count("CISA Adds Two Vulnerabilities") == 1
+    assert "+1 same-title" in collapsed
+    assert everything.count("CISA Adds Two Vulnerabilities") == 2
+
+
+def test_list_hides_excluded_items_by_default(temp_db, sources, capsys):
+    body = (b"<rss><channel><item>"
+            b"<title>Webinar about vulnerability scanning</title>"
+            b"<link>https://example.test/w</link></item></channel></rss>")
+    url = sources.server.serve("/w.xml", body)
+    sources({"name": "s", "url": url, "enabled": True})
+    run(["collect"])
+    capsys.readouterr()
+
+    run(["list"])
+    assert "Webinar" not in capsys.readouterr().out
+
+    run(["list", "--include-excluded"])
+    assert "Webinar" in capsys.readouterr().out

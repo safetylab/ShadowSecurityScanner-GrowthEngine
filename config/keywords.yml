@@ -30,6 +30,23 @@ secondary:
   - advisory
   - patch
   - hardening
+  # Industrial and embedded advisories are a large share of what CISA
+  # publishes, and their titles name a product rather than a category.
+  - ics
+  - scada
+  - plc
+  - firmware
+  - industrial control
+  - operational technology
+  - siemens
+  - schneider electric
+  - rockwell
+  - ivanti
+  - fortinet
+  - authentication bypass
+  - privilege escalation
+  - remote code execution
+  - denial-of-service
 
 # Items matching these are usually off-topic for our audience even when
 # they come from a security source.
@@ -70,6 +87,15 @@ topics:
     - dast
     - xss
     - sql injection
+  industrial:
+    - ics
+    - scada
+    - plc
+    - firmware
+    - industrial control
+    - siemens
+    - schneider
+    - rockwell
   operations:
     - incident
     - ransomware

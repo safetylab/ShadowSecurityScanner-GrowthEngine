@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from sge import db
+from sge import db, paths
 
 controller = importlib.import_module("agents.controller.main")
 
@@ -27,7 +27,11 @@ def test_init_applies_all_migrations(tmp_path, monkeypatch):
             )
         ]
 
-    assert applied == ["001_core.sql", "002_research.sql", "003_content.sql"]
+    # Compared against the directory so adding a migration does not
+    # require editing this test.
+    assert applied == sorted(
+        path.name for path in paths.MIGRATIONS_DIR.glob("*.sql")
+    )
 
 
 def test_init_is_repeatable(temp_db):

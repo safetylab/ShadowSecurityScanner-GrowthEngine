@@ -1,24 +1,29 @@
-# Manual-only for now. The schedule stays commented out until state
-# handling between runs is solved (see README, "State on CI"): a runner
-# is temporary, so growth.db does not survive from one run to the next.
+# Collection state lives on the `state` branch as NDJSON, because a
+# runner keeps nothing: without it every run would report all items as
+# new. The schedule below is still commented out — enable it only after
+# a few manual runs have shown the state round-trip working.
 name: Research collection
 
 on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Parse sources without writing to the database
+        description: Parse sources without writing state
         type: boolean
-        default: true
+        default: false
+  # schedule:
+  #   - cron: '17 6 * * *'
 
-# Read-only: this workflow collects and reports, it never publishes.
 permissions:
   contents: read
 
 concurrency:
-  # SQLite tolerates exactly one writer.
+  # SQLite tolerates exactly one writer, and so does the state branch.
   group: sge-state
   cancel-in-progress: false
+
+env:
+  STATE_FILE: .state/state/research_keys.ndjson
 
 jobs:
   collect:
@@ -27,14 +32,27 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
+    # Write is needed to push collection state, and only to the `state`
+    # branch: the push step below names that branch explicitly.
+    permissions:
+      contents: write
+
     steps:
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out the state branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: state
+          path: .state
 
       - name: Set up Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
 
       - name: Install dependencies
         run: |
@@ -50,6 +68,11 @@ jobs:
       - name: Initialise the database
         run: python agents/controller/main.py init
 
+      - name: Restore collection state
+        run: |
+          python agents/controller/main.py state-import \
+            --path "$STATE_FILE" --allow-missing
+
       - name: Collect sources
         run: |
           if [ "${{ inputs.dry_run }}" = "true" ]; then
@@ -60,7 +83,29 @@ jobs:
 
       - name: Write report
         if: ${{ inputs.dry_run != true }}
-        run: python agents/research/main.py report --days 1
+        run: python agents/research/main.py report --days 7
+
+      - name: Save collection state
+        if: ${{ inputs.dry_run != true }}
+        run: |
+          python agents/controller/main.py state-export --path "$STATE_FILE"
+
+      - name: Commit state
+        if: ${{ inputs.dry_run != true }}
+        working-directory: .state
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email \
+            '41898282+github-actions[bot]@users.noreply.github.com'
+
+          if git diff --quiet -- state/; then
+            echo 'State unchanged, nothing to commit.'
+            exit 0
+          fi
+
+          git add state/
+          git commit -m "State after run ${{ github.run_id }}"
+          git push origin HEAD:state
 
       - name: Upload report and logs
         if: always()

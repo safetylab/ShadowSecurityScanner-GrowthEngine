@@ -12,7 +12,9 @@ def test_migrate_applies_once(tmp_path):
         first = db.migrate(connection, paths.MIGRATIONS_DIR)
         second = db.migrate(connection, paths.MIGRATIONS_DIR)
 
-    assert first == ["001_core.sql", "002_research.sql", "003_content.sql"]
+    assert first == sorted(
+        path.name for path in paths.MIGRATIONS_DIR.glob("*.sql")
+    )
     assert second == []
 
 

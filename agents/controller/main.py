@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sge import config, db  # noqa: E402
+from sge import config, db, state  # noqa: E402
 from sge.logging_setup import get_logger  # noqa: E402
 
 AGENT = "controller"
@@ -152,6 +152,50 @@ def command_log(args):
     return 0
 
 
+def command_state_export(args):
+    with db.session() as connection:
+        db.migrate(connection)
+        text, count = state.export_state(connection, args.keep_days)
+
+    target = Path(args.path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+    log.info("Exported %d items to %s (%.1f KiB)", count, target,
+             len(text.encode()) / 1024)
+    return 0
+
+
+def command_state_import(args):
+    target = Path(args.path)
+
+    if not target.is_file():
+        if args.allow_missing:
+            log.info("No state file at %s, starting empty", target)
+            return 0
+
+        log.error("State file not found: %s", target)
+        return 1
+
+    with db.session() as connection:
+        db.migrate(connection)
+
+        try:
+            imported, skipped = state.import_state(
+                connection, target.read_text(encoding="utf-8")
+            )
+        except state.StateError as error:
+            log.error("Cannot import state: %s", error)
+            return 1
+
+        db.log_event(connection, "state_imported", AGENT, None,
+                     {"imported": imported, "skipped": skipped})
+        connection.commit()
+
+    log.info("Imported %d items, %d already known", imported, skipped)
+    return 0
+
+
 def command_stats(_args):
     with db.session() as connection:
         db.migrate(connection)
@@ -229,6 +273,21 @@ def build_parser():
     event.add_argument("--agent", default=None)
     event.add_argument("--key", default=None)
 
+    export = commands.add_parser(
+        "state-export", help="write deduplication state as NDJSON"
+    )
+    export.add_argument("--path", required=True)
+    export.add_argument("--keep-days", type=int,
+                        default=state.DEFAULT_KEEP_DAYS,
+                        help="drop items older than this (0 keeps all)")
+
+    restore = commands.add_parser(
+        "state-import", help="load deduplication state from NDJSON"
+    )
+    restore.add_argument("--path", required=True)
+    restore.add_argument("--allow-missing", action="store_true",
+                         help="treat a missing file as empty state")
+
     commands.add_parser("stats", help="counters across all tables")
     commands.add_parser("config-check", help="validate configuration files")
 
@@ -241,6 +300,8 @@ HANDLERS = {
     "list": command_list,
     "set-status": command_set_status,
     "log": command_log,
+    "state-export": command_state_export,
+    "state-import": command_state_import,
     "stats": command_stats,
     "config-check": command_config_check,
 }
