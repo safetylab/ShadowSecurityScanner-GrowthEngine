@@ -1,7 +1,7 @@
 # Collection state lives on the `state` branch as NDJSON, because a
 # runner keeps nothing: without it every run would report all items as
-# new. The schedule below is still commented out — enable it only after
-# a few manual runs have shown the state round-trip working.
+# new. The state round-trip was verified over four manual runs before
+# the schedule below was enabled.
 name: Research collection
 
 on:
@@ -11,8 +11,10 @@ on:
         description: Parse sources without writing state
         type: boolean
         default: false
-  # schedule:
-  #   - cron: '17 6 * * *'
+  schedule:
+    # 06:17 UTC daily. GitHub queues scheduled runs and may start them
+    # late under load, which is fine: collection is idempotent.
+    - cron: '17 6 * * *'
 
 permissions:
   contents: read
