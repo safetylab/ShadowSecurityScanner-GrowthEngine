@@ -97,6 +97,23 @@ jobs:
         if: ${{ inputs.dry_run != true }}
         run: python agents/research/main.py report --days 7
 
+      # Visibility without downloading an artifact: the report lands on the
+      # run's own page. `!cancelled()` so a failed earlier step still shows
+      # whatever was collected.
+      - name: Put the report on the run page
+        if: ${{ !cancelled() && inputs.dry_run != true }}
+        run: |
+          report=$(ls -1t analytics/reports/research-*.md 2>/dev/null | head -1)
+
+          if [ -z "$report" ]; then
+            echo 'No report was written.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # The summary is capped at 1 MiB; 200 KB of one report is plenty
+          # and the full text stays in the artifact.
+          head -c 200000 "$report" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Save collection state
         if: ${{ inputs.dry_run != true }}
         run: |

@@ -370,6 +370,13 @@ against a local HTTP server, and every test uses its own database via
 | `weekly-audit.yml` | Mondays 07:23 UTC | Site and repository audits, radar, metrics, advice, dashboard |
 | `content-drafts.yml` | Manual only | Drafts a digest and uploads it for review |
 
+Each scheduled run writes its reports to the run's own summary page, so a
+collection or an audit can be read in Actions without downloading the
+artifact. The artifact keeps the full text and the logs.
+
+Nothing notifies you on its own beyond GitHub's own mail about a failed
+scheduled run: the engine reports, it does not page anybody.
+
 Content drafting stays manual on purpose: a draft is a claim about
 reality that a person has to check before it goes anywhere, and the
 site's own system publishes facts rather than generated prose. See

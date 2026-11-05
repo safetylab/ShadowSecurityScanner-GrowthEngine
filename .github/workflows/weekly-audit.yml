@@ -108,6 +108,26 @@ jobs:
       - name: Build the dashboard
         run: python agents/dashboard/main.py build
 
+      # Every report on the run's own page, so a weekly audit can be read
+      # without downloading the artifact. `!cancelled()` so a failure part
+      # way through still shows the reports that did get written.
+      - name: Put the reports on the run page
+        if: ${{ !cancelled() }}
+        run: |
+          for kind in seo github weekly optimisation; do
+            report=$(ls -1t "analytics/reports/$kind"-*.md 2>/dev/null | head -1)
+
+            if [ -z "$report" ]; then
+              echo "No $kind report was written." >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+
+            # Four reports share the summary's 1 MiB budget; the full text
+            # stays in the artifact.
+            head -c 150000 "$report" >> "$GITHUB_STEP_SUMMARY"
+            printf '\n\n---\n\n' >> "$GITHUB_STEP_SUMMARY"
+          done
+
       - name: Save state
         run: |
           python agents/controller/main.py state-export --path "$STATE_FILE"
