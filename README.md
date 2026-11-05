@@ -11,10 +11,11 @@ and GitHub Actions. No paid APIs, no always-on server.
 **What it does not do.** It never inflates stars, forks or views, never
 creates fake accounts, issues or reviews, and never replies in someone
 else's thread by itself — the community radar has no posting code at
-all. It can post the project's own digests to Reddit, LinkedIn and X,
-and only after a person approved that text: see
+all. It can post the project's own digests to X and
+LinkedIn, and only after a person approved that text: see
 [Distribution](#distribution). Hacker News stays a human's job because
-its rules say so. See [`config/policies.yml`](config/policies.yml).
+its rules say so, and Reddit because it no longer grants API access to
+new apps. See [`config/policies.yml`](config/policies.yml).
 
 ## Where publishing happens
 
@@ -217,7 +218,7 @@ Posting needs credentials, from the environment only:
 
 | Channel | Variables | Notes |
 | --- | --- | --- |
-| `reddit` | `SGE_REDDIT_CLIENT_ID`, `SGE_REDDIT_CLIENT_SECRET`, `SGE_REDDIT_USERNAME`, `SGE_REDDIT_PASSWORD` | App of type "script", owned by that account |
+| `reddit` | `SGE_REDDIT_CLIENT_ID`, `SGE_REDDIT_CLIENT_SECRET`, `SGE_REDDIT_USERNAME`, `SGE_REDDIT_PASSWORD` | Written and tested, but **off**: Reddit stopped accepting new Data API requests on 31 October 2026, unregistered apps lose access in January 2027 and the public API ends in March 2027. Needs an app approved before that date; a `script` app owned by the posting account. An account with 2FA cannot use the password grant unattended |
 | `x` | `SGE_X_API_KEY`, `SGE_X_API_SECRET`, `SGE_X_ACCESS_TOKEN`, `SGE_X_ACCESS_SECRET` | OAuth 1.0a, straight from the developer portal; does not expire. Writing needs a paid tier |
 | `x` (manual runs) | `SGE_X_TOKEN` | OAuth 2.0 user token. Lasts two hours and its refresh token is single-use, so a scheduled job cannot keep it |
 | `linkedin` | `SGE_LINKEDIN_TOKEN`, `SGE_LINKEDIN_AUTHOR` | As a person: the self-service "Share on LinkedIn" product, author `urn:li:person:<id>`. As a company page: `w_organization_social`, which needs Community Management review. Token lasts about 60 days |
@@ -424,9 +425,11 @@ a claim about a CVE that nobody read. See
 ## Status
 
 All eleven phases of the implementation plan are implemented, and
-posting to Reddit, X and LinkedIn was added afterwards on the owner's
+posting to external channels was added afterwards on the owner's
 decision: the plan had ruled it out, and the engine now does it behind
-an approval, a quality gate and a daily cap.
+an approval, a quality gate and a daily cap. Live on X and LinkedIn;
+the Reddit publisher exists and is tested but stays off, because Reddit
+closed new Data API access on 31 October 2026.
 
 What is still deliberately absent: automated replies in other people's
 threads, automated Hacker News submissions, any telemetry in the
@@ -436,6 +439,8 @@ Known limits worth keeping in mind:
 
 - the CISA feed answers HTTP 403 to Actions runners, so the full set of
   six sources is only collected from a local or residential network;
+- a LinkedIn token lasts about 60 days and has to be replaced by hand:
+  refreshing it needs an approval LinkedIn grants to reviewed apps;
 - topic classification is a keyword heuristic and leaves a large share of
   items unclassified. `config/keywords.yml` needs extending as you see
   what the feeds actually publish, followed by `research rescore`;

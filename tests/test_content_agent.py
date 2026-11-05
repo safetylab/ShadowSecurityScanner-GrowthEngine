@@ -138,7 +138,7 @@ def test_a_failing_quality_gate_blocks_the_file_and_is_audited(
 def test_social_draft_always_waits_for_a_review(
     research_rows, drafts_dir
 ):
-    """Reddit is 'automatic', and the draft still lands in review."""
+    """X is 'automatic', and the draft still lands in review."""
     run(["draft", "--topic", "advisories"])
 
     with db.session() as connection:
@@ -146,11 +146,11 @@ def test_social_draft_always_waits_for_a_review(
             "SELECT slug FROM content_items"
         ).fetchone()["slug"]
 
-    assert run(["social", "--channel", "reddit", "--slug", slug]) == 0
+    assert run(["social", "--channel", "x", "--slug", slug]) == 0
 
     with db.session() as connection:
         row = connection.execute(
-            "SELECT mode FROM publications WHERE channel = 'reddit'"
+            "SELECT mode FROM publications WHERE channel = 'x'"
         ).fetchone()
         item = connection.execute(
             "SELECT status FROM content_items WHERE kind = 'social'"

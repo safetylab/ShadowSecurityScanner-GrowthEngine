@@ -18,9 +18,15 @@ channels:
     enabled: false
     mode: manual
 
+  # Automatic posting is written and tested (sge/publishers.py), and it
+  # is off because Reddit closed the door, not because of a rule here:
+  # new requests for public Data API access stopped being accepted on
+  # 31 October 2026, unregistered apps start losing access in January
+  # 2027, and the public Data API ends in March 2027. A person posts
+  # this channel; switch the mode back if an approved app ever exists.
   reddit:
     enabled: true
-    mode: automatic
+    mode: draft_only
     # Subreddits whose rules allow a project author to post releases.
     # Adding one here is a claim that its rules have been read.
     targets:

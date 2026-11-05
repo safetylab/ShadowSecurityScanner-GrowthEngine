@@ -211,10 +211,10 @@ def test_queue_reports_the_daily_allowance(draft, capsys):
 
 
 def test_queue_says_who_posts_each_channel(draft, capsys):
-    draft(channel="reddit", status="review")
+    draft(channel="x", status="review")
     run(["queue"])
 
-    # reddit is 'automatic' in this repository's configuration
+    # x is 'automatic' in this repository's configuration
     assert "posted from here" in capsys.readouterr().out
 
 
@@ -254,6 +254,14 @@ def reddit_api(feed_server, monkeypatch):
     # The configuration asks the publisher whether it needs a target.
     factory.needs_target = True
     monkeypatch.setitem(dist.publishers.PUBLISHERS, "reddit", factory)
+
+    # reddit is draft_only in this repository because Reddit stopped
+    # granting API access; the behaviour under test is what happens to
+    # an external channel that *is* automatic.
+    monkeypatch.setattr(dist.config, "load_channels", lambda: {
+        "channels": {"reddit": {"enabled": True, "mode": "automatic",
+                                "targets": ["netsec"]}}
+    })
 
     for name, value in REDDIT_ENV.items():
         monkeypatch.setenv(name, value)
