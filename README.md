@@ -47,7 +47,7 @@ pip install -r requirements-dev.txt
 
 python agents/controller/main.py config-check   # validate configuration
 python agents/controller/main.py init           # create the database
-python -m pytest                                # 168 tests, no network
+python -m pytest                                # 459 tests, no network
 ```
 
 Then collect research and build a draft:
@@ -353,7 +353,7 @@ the artifact and leave the step disabled.
 ## Tests
 
 ```bash
-python -m pytest            # whole suite (168 tests)
+python -m pytest            # whole suite (459 tests)
 python -m pytest -k state   # one area
 ```
 
