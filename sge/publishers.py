@@ -15,8 +15,12 @@ its rules: the channel stays draft_only and a person posts it.
 """
 
 import base64
+import hashlib
+import hmac
 import json
-from urllib.parse import urlencode
+import secrets
+import time
+from urllib.parse import quote, urlencode
 
 from . import net
 
@@ -152,25 +156,92 @@ class RedditPublisher:
         return {"platform": self.name, "url": url, "id": data.get("id", "")}
 
 
+def _quote(value):
+    """Percent-encoding as OAuth 1.0a defines it (RFC 3986 unreserved)."""
+    return quote(str(value), safe="~")
+
+
+def oauth1_header(method, url, credentials, nonce=None, timestamp=None):
+    """Signed Authorization header for a request with a JSON body.
+
+    Only the oauth_* parameters are signed: a JSON body is not
+    form-encoded, so it does not enter the signature base string. The
+    signing key is the consumer secret and the token secret, joined by
+    an ampersand, both percent-encoded.
+    """
+    params = {
+        "oauth_consumer_key": credentials["consumer_key"],
+        "oauth_nonce": nonce or secrets.token_hex(16),
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": str(timestamp or int(time.time())),
+        "oauth_token": credentials["token"],
+        "oauth_version": "1.0",
+    }
+
+    collected = "&".join(
+        f"{_quote(key)}={_quote(params[key])}" for key in sorted(params)
+    )
+    base = "&".join([method.upper(), _quote(url), _quote(collected)])
+    key = (f"{_quote(credentials['consumer_secret'])}&"
+           f"{_quote(credentials['token_secret'])}")
+
+    signature = base64.b64encode(
+        hmac.new(key.encode("utf-8"), base.encode("utf-8"),
+                 hashlib.sha1).digest()
+    ).decode("ascii")
+
+    signed = {**params, "oauth_signature": signature}
+
+    return "OAuth " + ", ".join(
+        f'{_quote(key)}="{_quote(signed[key])}"' for key in sorted(signed)
+    )
+
+
 class XPublisher:
     """Posts one tweet through API v2.
 
-    The token must be a user-context OAuth 2.0 access token: app-only
-    tokens cannot write. Writing also needs a paid API tier, so a 403
-    here usually means the plan, not the text.
+    Two credential shapes work, and the choice matters for unattended
+    runs. OAuth 1.0a (four values straight from the developer portal)
+    does not expire and is the default here. An OAuth 2.0 user token
+    lasts two hours and its refresh token is single-use, which a CI job
+    reading a fixed secret cannot survive — it is supported only for a
+    manual run.
+
+    Writing also needs a paid API tier, so a 403 usually means the plan
+    rather than the text.
     """
 
     name = "x"
     needs_target = False
     POST_URL = "https://api.x.com/2/tweets"
     LIMIT = 280
+    OAUTH1_VARS = ("SGE_X_API_KEY", "SGE_X_API_SECRET",
+                   "SGE_X_ACCESS_TOKEN", "SGE_X_ACCESS_SECRET")
 
     def __init__(self, environ, post_url=None):
         self.environ = environ
         self.post_url = post_url or self.POST_URL
 
+    def _oauth1_credentials(self):
+        if any(self.environ.get(name) for name in self.OAUTH1_VARS):
+            return {
+                "consumer_key": self.environ.get("SGE_X_API_KEY", ""),
+                "consumer_secret": self.environ.get("SGE_X_API_SECRET", ""),
+                "token": self.environ.get("SGE_X_ACCESS_TOKEN", ""),
+                "token_secret": self.environ.get("SGE_X_ACCESS_SECRET", ""),
+            }
+
+        return None
+
     def missing(self):
-        return [] if self.environ.get("SGE_X_TOKEN") else ["SGE_X_TOKEN"]
+        if any(self.environ.get(name) for name in self.OAUTH1_VARS):
+            return [name for name in self.OAUTH1_VARS
+                    if not self.environ.get(name)]
+
+        if self.environ.get("SGE_X_TOKEN"):
+            return []
+
+        return list(self.OAUTH1_VARS)
 
     def submit(self, target, title, body):
         missing = self.missing()
@@ -185,11 +256,16 @@ class XPublisher:
                 f"x: {len(text)} characters, the limit is {self.LIMIT}"
             )
 
+        credentials = self._oauth1_credentials()
+
+        if credentials:
+            authorization = oauth1_header("POST", self.post_url, credentials)
+        else:
+            authorization = f"Bearer {self.environ['SGE_X_TOKEN']}"
+
         response = net.post(
             self.post_url, json.dumps({"text": text}), "application/json",
-            headers={
-                "Authorization": f"Bearer {self.environ['SGE_X_TOKEN']}",
-            },
+            headers={"Authorization": authorization},
         )
 
         payload = _json(response, "x")
@@ -215,16 +291,23 @@ class XPublisher:
 class LinkedInPublisher:
     """Posts to a person or organisation page through the Posts API.
 
-    Needs an access token from an app approved for the Community
-    Management API; until that approval lands every call answers 403.
+    Posting as a person needs only the self-service "Share on
+    LinkedIn" product, and then the author must be that same person's
+    URN: a token with w_member_social cannot post as an organisation,
+    which is the usual cause of a 403 here. Posting as a company page
+    needs w_organization_social, which comes with the Community
+    Management API and LinkedIn's review of the app.
+
     The author URN decides where the post lands and has to be given:
-    urn:li:organization:<id> or urn:li:person:<id>.
+    urn:li:person:<id> or urn:li:organization:<id>.
     """
 
     name = "linkedin"
     needs_target = False
     POST_URL = "https://api.linkedin.com/rest/posts"
-    VERSION = "202411"
+    # LinkedIn dates its API versions and retires one after about a
+    # year; a stale value answers 426.
+    VERSION = "202610"
 
     def __init__(self, environ, post_url=None):
         self.environ = environ

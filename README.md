@@ -218,8 +218,9 @@ Posting needs credentials, from the environment only:
 | Channel | Variables | Notes |
 | --- | --- | --- |
 | `reddit` | `SGE_REDDIT_CLIENT_ID`, `SGE_REDDIT_CLIENT_SECRET`, `SGE_REDDIT_USERNAME`, `SGE_REDDIT_PASSWORD` | App of type "script", owned by that account |
-| `x` | `SGE_X_TOKEN` | User-context OAuth 2.0 token; writing needs a paid tier |
-| `linkedin` | `SGE_LINKEDIN_TOKEN`, `SGE_LINKEDIN_AUTHOR` | Community Management API approval, author as `urn:li:organization:<id>` |
+| `x` | `SGE_X_API_KEY`, `SGE_X_API_SECRET`, `SGE_X_ACCESS_TOKEN`, `SGE_X_ACCESS_SECRET` | OAuth 1.0a, straight from the developer portal; does not expire. Writing needs a paid tier |
+| `x` (manual runs) | `SGE_X_TOKEN` | OAuth 2.0 user token. Lasts two hours and its refresh token is single-use, so a scheduled job cannot keep it |
+| `linkedin` | `SGE_LINKEDIN_TOKEN`, `SGE_LINKEDIN_AUTHOR` | As a person: the self-service "Share on LinkedIn" product, author `urn:li:person:<id>`. As a company page: `w_organization_social`, which needs Community Management review. Token lasts about 60 days |
 | `hackernews` | — | **Cannot be automated.** The API is read-only, submissions go through a web form, and automated submissions are against the site's rules. The channel stays `draft_only` and a person posts it. |
 
 `config-check` refuses a channel set to `automatic` that no publisher

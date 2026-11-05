@@ -88,6 +88,80 @@ def test_missing_credentials_are_named_and_nothing_is_sent(feed_server):
     assert feed_server.requests == []
 
 
+OAUTH1 = {
+    "SGE_X_API_KEY": "ck",
+    "SGE_X_API_SECRET": "cs",
+    "SGE_X_ACCESS_TOKEN": "t",
+    "SGE_X_ACCESS_SECRET": "ts",
+}
+
+
+def test_the_oauth1_signature_matches_an_independent_implementation():
+    """Known answer, cross-checked against oauthlib 3.x.
+
+    oauthlib signs the same base string when told the body is form
+    encoded and empty, which is how X treats a JSON body: it is not
+    part of the signature, and X does not use the body-hash extension.
+    Recomputed with:
+
+        Client("ck", client_secret="cs", resource_owner_key="t",
+               resource_owner_secret="ts", nonce="abc",
+               timestamp="1762000000").sign(url, http_method="POST",
+               body="", headers={"Content-Type":
+               "application/x-www-form-urlencoded"})
+    """
+    header = publishers.oauth1_header(
+        "POST", "https://api.x.com/2/tweets",
+        {"consumer_key": "ck", "consumer_secret": "cs",
+         "token": "t", "token_secret": "ts"},
+        nonce="abc", timestamp=1762000000,
+    )
+
+    assert 'oauth_signature="%2BKwtLo8Bvd8Y9X6q0RRbx3hFbrg%3D"' in header
+    assert 'oauth_signature_method="HMAC-SHA1"' in header
+    assert 'oauth_consumer_key="ck"' in header
+
+
+def test_each_signature_carries_a_fresh_nonce():
+    credentials = {"consumer_key": "ck", "consumer_secret": "cs",
+                   "token": "t", "token_secret": "ts"}
+    url = "https://api.x.com/2/tweets"
+
+    first = publishers.oauth1_header("POST", url, credentials)
+    second = publishers.oauth1_header("POST", url, credentials)
+
+    assert first != second
+
+
+def test_x_signs_with_oauth1_when_the_portal_credentials_are_present(
+    feed_server
+):
+    url = feed_server.serve(
+        "/tweets", json.dumps({"data": {"id": "7"}}).encode()
+    )
+    publisher = publishers.XPublisher(dict(OAUTH1), post_url=url)
+
+    assert publisher.submit(None, "T", "Body")["id"] == "7"
+
+    authorization = feed_server.requests[0]["headers"]["Authorization"]
+
+    assert authorization.startswith("OAuth ")
+    assert "oauth_token=\"t\"" in authorization
+    # The expiring token path is not taken when portal credentials exist.
+    assert "Bearer" not in authorization
+
+
+def test_x_names_every_missing_oauth1_value(feed_server):
+    partial = {"SGE_X_API_KEY": "ck"}
+    publisher = publishers.XPublisher(partial, post_url=feed_server.url)
+
+    with pytest.raises(publishers.MissingCredentials,
+                       match="SGE_X_ACCESS_SECRET"):
+        publisher.submit(None, "T", "Body")
+
+    assert feed_server.requests == []
+
+
 def test_x_posts_json_and_builds_the_status_url(feed_server):
     url = feed_server.serve(
         "/tweets", json.dumps({"data": {"id": "42"}}).encode()

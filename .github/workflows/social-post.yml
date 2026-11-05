@@ -153,6 +153,10 @@ jobs:
           SGE_REDDIT_CLIENT_SECRET: ${{ secrets.SGE_REDDIT_CLIENT_SECRET }}
           SGE_REDDIT_USERNAME: ${{ secrets.SGE_REDDIT_USERNAME }}
           SGE_REDDIT_PASSWORD: ${{ secrets.SGE_REDDIT_PASSWORD }}
+          SGE_X_API_KEY: ${{ secrets.SGE_X_API_KEY }}
+          SGE_X_API_SECRET: ${{ secrets.SGE_X_API_SECRET }}
+          SGE_X_ACCESS_TOKEN: ${{ secrets.SGE_X_ACCESS_TOKEN }}
+          SGE_X_ACCESS_SECRET: ${{ secrets.SGE_X_ACCESS_SECRET }}
           SGE_X_TOKEN: ${{ secrets.SGE_X_TOKEN }}
           SGE_LINKEDIN_TOKEN: ${{ secrets.SGE_LINKEDIN_TOKEN }}
           SGE_LINKEDIN_AUTHOR: ${{ secrets.SGE_LINKEDIN_AUTHOR }}
