@@ -437,8 +437,11 @@ scanner, and any number the engine cannot honestly measure.
 
 Known limits worth keeping in mind:
 
-- the CISA feed answers HTTP 403 to Actions runners, so the full set of
-  six sources is only collected from a local or residential network;
+- the CISA feed answers HTTP 403 to Actions runners, and on 5 November
+  2026 it began refusing a residential address too, so the sixth source
+  may not be collectable from anywhere the engine runs. The run reports
+  it as a failed source rather than hiding it; the remaining five
+  collect normally;
 - a LinkedIn token lasts about 60 days and has to be replaced by hand:
   refreshing it needs an approval LinkedIn grants to reviewed apps;
 - topic classification is a keyword heuristic and leaves a large share of
