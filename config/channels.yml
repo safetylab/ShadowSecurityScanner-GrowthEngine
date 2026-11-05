@@ -20,7 +20,11 @@ channels:
 
   reddit:
     enabled: true
-    mode: draft_only
+    mode: automatic
+    # Subreddits whose rules allow a project author to post releases.
+    # Adding one here is a claim that its rules have been read.
+    targets:
+      - netsec
 
   hackernews:
     enabled: true
@@ -28,8 +32,8 @@ channels:
 
   linkedin:
     enabled: true
-    mode: draft_only
+    mode: automatic
 
   x:
     enabled: true
-    mode: draft_only
+    mode: automatic

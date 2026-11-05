@@ -135,9 +135,10 @@ def test_a_failing_quality_gate_blocks_the_file_and_is_audited(
     assert rejected == 1
 
 
-def test_social_draft_is_draft_only_and_needs_review(
+def test_social_draft_always_waits_for_a_review(
     research_rows, drafts_dir
 ):
+    """Reddit is 'automatic', and the draft still lands in review."""
     run(["draft", "--topic", "advisories"])
 
     with db.session() as connection:
@@ -155,16 +156,16 @@ def test_social_draft_is_draft_only_and_needs_review(
             "SELECT status FROM content_items WHERE kind = 'social'"
         ).fetchone()
 
-    assert row["mode"] == "draft_only"
+    assert row["mode"] == "automatic"
     assert item["status"] == "review"
 
     text = (drafts_dir.parent / "content" / "social").glob("*.md")
     body = next(text).read_text(encoding="utf-8")
-    assert "Not published automatically" in body
-    assert "mode: draft_only" in body
+    assert "Not posted yet" in body
+    assert "mode: automatic" in body
 
 
-def test_social_refuses_channels_that_are_not_draft_only(
+def test_social_refuses_channels_the_project_owns(
     research_rows, drafts_dir
 ):
     run(["draft", "--topic", "advisories"])
@@ -174,7 +175,8 @@ def test_social_refuses_channels_that_are_not_draft_only(
             "SELECT slug FROM content_items"
         ).fetchone()["slug"]
 
-    # website is 'automatic'; this agent must never post there.
+    # The site publishes itself; a social draft aimed at it is a
+    # mistake even though it is an 'automatic' channel.
     assert run(["social", "--channel", "website", "--slug", slug]) == 1
 
 

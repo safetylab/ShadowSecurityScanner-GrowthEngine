@@ -9,10 +9,12 @@ It runs on free tooling only: Python 3.12, the standard library, SQLite
 and GitHub Actions. No paid APIs, no always-on server.
 
 **What it does not do.** It never inflates stars, forks or views, never
-creates fake accounts, issues or reviews, and never posts automatically
-to communities it does not own. Drafts for Reddit, Hacker News, LinkedIn
-and X are written for a human to read, edit and post manually. See
-[`config/policies.yml`](config/policies.yml).
+creates fake accounts, issues or reviews, and never replies in someone
+else's thread by itself — the community radar has no posting code at
+all. It can post the project's own digests to Reddit, LinkedIn and X,
+and only after a person approved that text: see
+[Distribution](#distribution). Hacker News stays a human's job because
+its rules say so. See [`config/policies.yml`](config/policies.yml).
 
 ## Where publishing happens
 
@@ -188,14 +190,42 @@ or pull request, never messages anyone, and touches no counter.
 ```bash
 python agents/distribution/main.py queue
 python agents/distribution/main.py approve --slug <slug>
-python agents/distribution/main.py publish --slug <slug>
+python agents/distribution/main.py publish --slug <slug> [--target netsec]
 python agents/distribution/main.py rss
 ```
 
-Publishes only to channels the project owns. An external channel is
-refused outright. The quality gate runs **again** at publish time,
-because a file can be edited by hand after it was generated, and the
-daily cap from `policies.yml` applies.
+Publishes an approved draft to its channel. For the site and its feed
+that means moving the file into `content/published`; for an external
+channel set to `automatic` in `channels.yml` it means one request to
+that platform through [`sge/publishers.py`](sge/publishers.py).
+
+Three rules hold whatever the configuration says:
+
+- **Approval first.** A draft is posted only after `approve` and only if
+  the quality gate passes. The gate runs **again** at publish time,
+  because a file can be edited by hand after it was generated.
+- **One call, one place.** Extra targets are reported, not posted:
+  cross-posting one text to several communities at once is the shape of
+  spam, and a ban costs more than a missed post.
+- **The daily cap from `policies.yml` counts every channel together.**
+
+A platform refusal — a rate limit, a subreddit rule, a shadowban — is
+reported and leaves the draft `approved`, so a later run can retry
+without a second review.
+
+Posting needs credentials, from the environment only:
+
+| Channel | Variables | Notes |
+| --- | --- | --- |
+| `reddit` | `SGE_REDDIT_CLIENT_ID`, `SGE_REDDIT_CLIENT_SECRET`, `SGE_REDDIT_USERNAME`, `SGE_REDDIT_PASSWORD` | App of type "script", owned by that account |
+| `x` | `SGE_X_TOKEN` | User-context OAuth 2.0 token; writing needs a paid tier |
+| `linkedin` | `SGE_LINKEDIN_TOKEN`, `SGE_LINKEDIN_AUTHOR` | Community Management API approval, author as `urn:li:organization:<id>` |
+| `hackernews` | — | **Cannot be automated.** The API is read-only, submissions go through a web form, and automated submissions are against the site's rules. The channel stays `draft_only` and a person posts it. |
+
+`config-check` refuses a channel set to `automatic` that no publisher
+backs, and a platform with places of its own (a subreddit) must name
+`targets`. Adding a subreddit there is a claim that its rules have been
+read.
 
 ### Community Radar (never posts)
 
@@ -282,7 +312,10 @@ properties below rather than trusting them.
   quote would execute commands on the runner.
 - All outbound HTTP goes through `sge/net.py`: HTTPS-only validation,
   timeouts, a 12 MB response cap, at most three redirects, and an
-  identifying User-Agent.
+  identifying User-Agent. A write (`net.post`) refuses redirects
+  outright — urllib turns a redirected POST into a GET without the
+  body, so following one would read another URL instead of writing to
+  this one — and caps the answer at 256 KB.
 - Feed documents declaring a DTD or entity are refused before parsing,
   which closes entity expansion and external entity attacks.
 - Secrets only ever come from the environment or Actions Secrets.
@@ -369,6 +402,7 @@ against a local HTTP server, and every test uses its own database via
 | `daily-research.yml` | 06:17 UTC daily | Collects sources, writes a report, saves state |
 | `weekly-audit.yml` | Mondays 07:23 UTC | Site and repository audits, radar, metrics, advice, dashboard |
 | `content-drafts.yml` | Manual only | Drafts a digest and uploads it for review |
+| `social-post.yml` | Manual only | Drafts a social post and, with `post: true`, posts it |
 
 Each scheduled run writes its reports to the run's own summary page, so a
 collection or an audit can be read in Actions without downloading the
@@ -377,17 +411,25 @@ artifact. The artifact keeps the full text and the logs.
 Nothing notifies you on its own beyond GitHub's own mail about a failed
 scheduled run: the engine reports, it does not page anybody.
 
-Content drafting stays manual on purpose: a draft is a claim about
-reality that a person has to check before it goes anywhere, and the
-site's own system publishes facts rather than generated prose. See
+Drafting and posting stay on manual triggers because the database does
+not survive between runs: a draft approved in one run would not exist in
+the next, so one run does the whole chain and launching it with
+`post: true` **is** the approval. Running the chain unattended on a
+schedule would need two further changes — content state persisted
+between runs, and approval dropped — and dropping approval means posting
+a claim about a CVE that nobody read. See
 [Where publishing happens](#where-publishing-happens).
 
 ## Status
 
-All eleven phases of the implementation plan are implemented. What is
-deliberately absent: automatic posting to communities the project does
-not own, any telemetry in the scanner, and any number the engine cannot
-honestly measure.
+All eleven phases of the implementation plan are implemented, and
+posting to Reddit, X and LinkedIn was added afterwards on the owner's
+decision: the plan had ruled it out, and the engine now does it behind
+an approval, a quality gate and a daily cap.
+
+What is still deliberately absent: automated replies in other people's
+threads, automated Hacker News submissions, any telemetry in the
+scanner, and any number the engine cannot honestly measure.
 
 Known limits worth keeping in mind:
 

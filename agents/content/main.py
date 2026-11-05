@@ -21,7 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from sge import (config, db, paths, quality, render,  # noqa: E402
+from sge import (config, db, paths, publishers,  # noqa: E402
+                 quality, render,
                  text as text_util)
 from sge.logging_setup import get_logger  # noqa: E402
 
@@ -228,10 +229,22 @@ def command_social(args):
         log.error("Channel is disabled or unknown: %s", args.channel)
         return 1
 
-    if mode != "draft_only":
+    # Social drafts belong to the community channels. The owned ones —
+    # the site, its feed, releases — are written by the site's own
+    # system, and a social post aimed at them is a mistake, whatever
+    # their mode says.
+    if not (publishers.has_publisher(args.channel)
+            or args.channel in publishers.NO_AUTOMATION):
         log.error(
-            "Channel %s is configured as '%s'; this agent only produces "
-            "drafts for review.", args.channel, mode
+            "Channel %s is not a community channel; social drafts are for "
+            "the external ones.", args.channel,
+        )
+        return 1
+
+    if mode == "manual":
+        log.error(
+            "Channel %s is 'manual': nothing here drafts for it.",
+            args.channel,
         )
         return 1
 
@@ -271,6 +284,8 @@ def command_social(args):
         text = render.render(template, {
             "title": row["title"],
             "channel": args.channel,
+            "mode": mode,
+            "slug": slug,
             "community": args.community or "choose a community that allows "
                                           "technical self-promotion",
             "generated_at": _today(),
@@ -316,15 +331,15 @@ def command_social(args):
         connection.execute(
             """
             INSERT OR IGNORE INTO publications (slug, channel, mode)
-            VALUES (?, ?, 'draft_only')
+            VALUES (?, ?, ?)
             """,
-            (slug, args.channel),
+            (slug, args.channel, mode),
         )
         db.log_event(connection, "social_draft_created", AGENT, slug,
                      {"channel": args.channel, "mode": mode})
         connection.commit()
 
-    log.info("Social draft saved for manual review: %s", target)
+    log.info("Social draft saved for review: %s", target)
     print(f"\n{target}")
     return 0
 

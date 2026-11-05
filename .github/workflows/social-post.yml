@@ -1,0 +1,195 @@
+# Drafts a social post and, when asked to, posts it.
+#
+# One run does the whole chain — draft, quality gate, approval, post —
+# because the database does not survive between runs: a draft approved
+# in one run would not exist in the next. Launching this workflow with
+# `post: true` IS the approval, and the run records who launched it.
+#
+# Without the platform secrets the run still drafts and uploads the
+# draft; the posting step then reports the missing credentials and
+# fails, rather than pretending to have posted.
+name: Social post
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel to post to (reddit, x, linkedin)
+        type: choice
+        options: [reddit, x, linkedin]
+        default: reddit
+      topic:
+        description: Topic to draft (blank = whatever was collected)
+        type: string
+        default: ''
+      target:
+        description: Subreddit, for reddit (blank = first in channels.yml)
+        type: string
+        default: ''
+      post:
+        description: Post it. Leave off to only produce the draft.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  # Two posting runs at once would race the daily cap.
+  group: social-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    name: Draft and post
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check out the state branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: state
+          path: .state
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+
+      - name: Validate configuration
+        run: python agents/controller/main.py config-check
+
+      - name: Run the tests
+        run: python -m pytest
+
+      - name: Create the database
+        run: python agents/controller/main.py init
+
+      - name: Import collection state
+        run: |
+          if [ -f "$STATE_FILE" ]; then
+            python agents/controller/main.py state-import --path "$STATE_FILE"
+          else
+            echo 'No state yet; drafting from this run only.'
+          fi
+        env:
+          STATE_FILE: .state/state/research_keys.ndjson
+
+      - name: Apply the current scoring
+        run: python agents/research/main.py rescore
+
+      - name: Collect sources
+        run: python agents/research/main.py collect
+
+      - name: Draft the digest
+        env:
+          TOPIC: ${{ inputs.topic }}
+        run: |
+          if [ -n "$TOPIC" ]; then
+            python agents/content/main.py draft --topic "$TOPIC"
+          else
+            python agents/content/main.py draft
+          fi
+
+      - name: Draft the social post
+        id: social
+        env:
+          CHANNEL: ${{ inputs.channel }}
+        run: |
+          slug=$(python - <<'PY'
+          from sge import db
+          with db.session() as connection:
+              row = connection.execute(
+                  "SELECT slug FROM content_items WHERE kind != 'social' "
+                  "ORDER BY id DESC LIMIT 1"
+              ).fetchone()
+          print(row["slug"] if row else "")
+          PY
+          )
+
+          if [ -z "$slug" ]; then
+            echo 'Nothing was drafted; there is nothing to post.'
+            exit 1
+          fi
+
+          python agents/content/main.py social \
+            --channel "$CHANNEL" --slug "$slug"
+
+          echo "slug=$slug-$CHANNEL" >> "$GITHUB_OUTPUT"
+
+      - name: Show the draft on the run page
+        env:
+          SLUG: ${{ steps.social.outputs.slug }}
+        run: |
+          file="content/social/$SLUG.md"
+
+          if [ -f "$file" ]; then
+            {
+              echo '## Draft'
+              echo
+              echo '```markdown'
+              head -c 20000 "$file"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Approve and post
+        if: ${{ inputs.post }}
+        env:
+          SLUG: ${{ steps.social.outputs.slug }}
+          TARGET: ${{ inputs.target }}
+          SGE_REDDIT_CLIENT_ID: ${{ secrets.SGE_REDDIT_CLIENT_ID }}
+          SGE_REDDIT_CLIENT_SECRET: ${{ secrets.SGE_REDDIT_CLIENT_SECRET }}
+          SGE_REDDIT_USERNAME: ${{ secrets.SGE_REDDIT_USERNAME }}
+          SGE_REDDIT_PASSWORD: ${{ secrets.SGE_REDDIT_PASSWORD }}
+          SGE_X_TOKEN: ${{ secrets.SGE_X_TOKEN }}
+          SGE_LINKEDIN_TOKEN: ${{ secrets.SGE_LINKEDIN_TOKEN }}
+          SGE_LINKEDIN_AUTHOR: ${{ secrets.SGE_LINKEDIN_AUTHOR }}
+        run: |
+          python agents/distribution/main.py approve --slug "$SLUG"
+
+          if [ -n "$TARGET" ]; then
+            python agents/distribution/main.py publish \
+              --slug "$SLUG" --target "$TARGET"
+          else
+            python agents/distribution/main.py publish --slug "$SLUG"
+          fi
+
+      - name: Report what was posted
+        if: ${{ always() && inputs.post }}
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          from sge import db
+          with db.session() as connection:
+              rows = connection.execute(
+                  "SELECT channel, url, published_at FROM publications "
+                  "WHERE published_at IS NOT NULL"
+              ).fetchall()
+          print("\n## Posted\n")
+          if not rows:
+              print("Nothing was posted.")
+          for row in rows:
+              print(f"- {row['channel']}: {row['url']} ({row['published_at']})")
+          PY
+
+      - name: Upload the drafts and logs
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: social-output
+          path: |
+            content/social/
+            content/drafts/
+            logs/
+          if-no-files-found: ignore

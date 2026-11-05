@@ -30,6 +30,7 @@ class _Handler(http.server.BaseHTTPRequestHandler):
     """Serves whatever the test registered for a path."""
 
     routes = {}
+    requests = []
 
     def do_GET(self):
         route = self.routes.get(self.path)
@@ -63,6 +64,44 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def do_POST(self):
+        route = self.routes.get(self.path)
+
+        if route is None:
+            self.send_error(404)
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        received = self.rfile.read(length) if length else b""
+
+        self.requests.append({
+            "path": self.path,
+            "body": received.decode("utf-8", "replace"),
+            "headers": dict(self.headers),
+        })
+
+        if route.get("redirect_to"):
+            self.send_response(route.get("status", 302))
+            self.send_header("Location", route["redirect_to"])
+            self.end_headers()
+            return
+
+        body = route["body"]
+        self.send_response(route.get("status", 200))
+        self.send_header("Content-Type", route.get("content_type",
+                                                   "application/json"))
+        self.send_header("Content-Length", str(len(body)))
+
+        for name, value in (route.get("headers") or {}).items():
+            self.send_header(name, value)
+
+        self.end_headers()
+
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
     def log_message(self, *_args):
         pass
 
@@ -81,8 +120,10 @@ def allow_local_addresses(monkeypatch):
 def feed_server():
     """Local HTTP server; register routes with ``serve(path, body, ...)``."""
     routes = {}
+    requests = []
 
-    handler = type("TestHandler", (_Handler,), {"routes": routes})
+    handler = type("TestHandler", (_Handler,),
+                   {"routes": routes, "requests": requests})
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -96,6 +137,10 @@ def feed_server():
         def serve(path, body, **options):
             routes[path] = {"body": body, **options}
             return f"{base}{path}"
+
+    # Every POST the server received, so a test can assert what was sent
+    # rather than only what came back.
+    Server.requests = requests
 
     try:
         yield Server()

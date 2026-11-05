@@ -5,6 +5,7 @@ size caps, redirect policy, the User-Agent and the refusal to reach
 private addresses are enforced in one place.
 """
 
+import collections
 import ipaddress
 import os
 import socket
@@ -240,3 +241,80 @@ def fetch(url, timeout=DEFAULT_TIMEOUT, max_bytes=DEFAULT_MAX_BYTES,
         response.close()
 
     return bytes(received), final_url
+
+
+# Writes answer small JSON documents; a megabyte-sized answer to a post
+# is a sign of something other than the API we meant to reach.
+DEFAULT_POST_MAX_BYTES = 256 * 1024
+
+Response = collections.namedtuple("Response", "status body headers")
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects. Used for writes only."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # urllib turns a redirected POST into a GET and drops the body,
+        # so following one would silently read another URL instead of
+        # writing to this one. An API that answers a write with a
+        # redirect is reporting a wrong request, not a moved endpoint.
+        raise FetchError(f"Refusing to follow a redirect on a write: {code}")
+
+
+def post(url, body, content_type, headers=None, timeout=DEFAULT_TIMEOUT,
+         max_bytes=DEFAULT_POST_MAX_BYTES):
+    """Send a POST through the same guards as a read and return Response.
+
+    An error status returns its body rather than raising: platform APIs
+    put the reason there — Reddit answers 200 with an error object, X
+    answers 403 with JSON — and a caller that cannot read it can only
+    report that something failed.
+    """
+    if not urls.is_valid_url(url):
+        raise FetchError(f"Unsupported URL: {url!r}")
+
+    check_address(url)
+
+    if isinstance(body, str):
+        body = body.encode("utf-8")
+
+    request = urllib.request.Request(
+        url,
+        data=body or b"",
+        method="POST",
+        headers={
+            "User-Agent": USER_AGENT,
+            "Content-Type": content_type,
+            **(headers or {}),
+        },
+    )
+
+    opener = urllib.request.build_opener(_NoRedirectHandler())
+
+    try:
+        response = opener.open(request, timeout=timeout)
+    except urllib.error.HTTPError as error:
+        try:
+            detail = error.read(max_bytes)
+        except OSError:
+            detail = b""
+        finally:
+            error.close()
+
+        return Response(error.code, detail, dict(error.headers or {}))
+    except urllib.error.URLError as error:
+        raise FetchError(f"Request failed: {error.reason}") from error
+    except OSError as error:
+        raise FetchError(f"Request failed: {error}") from error
+
+    try:
+        received = response.read(max_bytes + 1)
+    except OSError as error:
+        raise FetchError(f"Read failed: {error}") from error
+    finally:
+        response.close()
+
+    if len(received) > max_bytes:
+        raise ResponseTooLarge(f"Response exceeded limit of {max_bytes} bytes")
+
+    return Response(response.status, received, dict(response.headers or {}))

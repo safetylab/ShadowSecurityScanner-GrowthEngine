@@ -210,8 +210,138 @@ def test_queue_reports_the_daily_allowance(draft, capsys):
     assert "owned" in output
 
 
-def test_queue_marks_external_channels_as_human_posted(draft, capsys):
+def test_queue_says_who_posts_each_channel(draft, capsys):
     draft(channel="reddit", status="review")
     run(["queue"])
 
-    assert "human posts" in capsys.readouterr().out
+    # reddit is 'automatic' in this repository's configuration
+    assert "posted from here" in capsys.readouterr().out
+
+
+def test_queue_marks_a_draft_only_channel_as_human_posted(draft, capsys):
+    draft(channel="hackernews", status="review")
+    run(["queue"])
+
+    assert "a person posts" in capsys.readouterr().out
+
+
+REDDIT_ENV = {
+    "SGE_REDDIT_CLIENT_ID": "id",
+    "SGE_REDDIT_CLIENT_SECRET": "secret",
+    "SGE_REDDIT_USERNAME": "safetylab",
+    "SGE_REDDIT_PASSWORD": "pw",
+}
+
+
+@pytest.fixture
+def reddit_api(feed_server, monkeypatch):
+    """Point the reddit publisher at the local server."""
+    token_url = feed_server.serve(
+        "/token", json.dumps({"access_token": "t0ken"}).encode()
+    )
+    submit_url = feed_server.serve(
+        "/submit",
+        json.dumps({"json": {"errors": [], "data": {
+            "url": "https://reddit.test/r/netsec/comments/1/x/", "id": "1",
+        }}}).encode(),
+    )
+
+    def factory(environ):
+        return dist.publishers.RedditPublisher(
+            environ, token_url=token_url, submit_url=submit_url
+        )
+
+    # The configuration asks the publisher whether it needs a target.
+    factory.needs_target = True
+    monkeypatch.setitem(dist.publishers.PUBLISHERS, "reddit", factory)
+
+    for name, value in REDDIT_ENV.items():
+        monkeypatch.setenv(name, value)
+
+    return feed_server
+
+
+def test_an_automatic_external_channel_is_posted_from_here(draft, reddit_api):
+    draft(channel="reddit", status="approved")
+
+    assert run(["publish", "--slug", "digest"]) == 0
+
+    rows = published_rows()
+
+    assert len(rows) == 1
+    assert rows[0]["channel"] == "reddit"
+    assert rows[0]["published_at"]
+
+    with db.session() as connection:
+        url = connection.execute(
+            "SELECT url FROM publications WHERE channel = 'reddit'"
+        ).fetchone()["url"]
+
+    assert url == "https://reddit.test/r/netsec/comments/1/x/"
+    # The post carries the draft, and the subreddit comes from the
+    # configuration rather than from the draft.
+    assert "sr=netsec" in reddit_api.requests[1]["body"]
+
+
+def test_posting_still_requires_approval_on_an_automatic_channel(
+    draft, reddit_api
+):
+    draft(channel="reddit", status="review")
+
+    assert run(["publish", "--slug", "digest"]) == 1
+    assert published_rows() == []
+    assert reddit_api.requests == []
+
+
+def test_a_platform_refusal_leaves_the_draft_unpublished(draft, reddit_api,
+                                                         monkeypatch):
+    def refusing(environ):
+        raise dist.publishers.PlatformRefused("reddit: [['RATELIMIT']]")
+
+    refusing.needs_target = True
+
+    monkeypatch.setitem(dist.publishers.PUBLISHERS, "reddit", refusing)
+    draft(channel="reddit", status="approved")
+
+    assert run(["publish", "--slug", "digest"]) == 1
+    assert published_rows() == []
+
+    with db.session() as connection:
+        status = connection.execute(
+            "SELECT status FROM content_items WHERE slug = 'digest'"
+        ).fetchone()["status"]
+
+    # Still approved, so a later run can retry without a second review.
+    assert status == "approved"
+
+
+def test_missing_credentials_stop_the_post(draft, reddit_api, monkeypatch):
+    monkeypatch.delenv("SGE_REDDIT_PASSWORD")
+    draft(channel="reddit", status="approved")
+
+    assert run(["publish", "--slug", "digest"]) == 1
+    assert published_rows() == []
+
+
+def test_a_draft_only_channel_is_never_posted_from_here(draft, capsys):
+    draft(channel="hackernews", status="approved")
+
+    assert run(["publish", "--slug", "digest"]) == 1
+    assert published_rows() == []
+
+
+def test_dry_run_on_an_external_channel_sends_nothing(draft, reddit_api):
+    draft(channel="reddit", status="approved")
+
+    assert run(["publish", "--slug", "digest", "--dry-run"]) == 0
+    assert published_rows() == []
+    assert reddit_api.requests == []
+
+
+def test_the_x_text_carries_the_link_within_the_limit():
+    link = "https://shadowsecurityscanner.com/digest"
+    text = dist._external_text("x", "T" * 400, "---\ntitle: x\n---\n\nbody",
+                               link)
+
+    assert len(text) <= dist.X_LIMIT
+    assert text.endswith(link)

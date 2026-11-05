@@ -19,7 +19,28 @@ def test_every_configuration_file_has_a_loader():
     assert on_disk == set(config.LOADERS)
 
 
-def test_external_channels_must_not_be_automatic(monkeypatch, tmp_path):
+def test_automatic_is_refused_where_the_platform_has_no_publisher(
+    monkeypatch, tmp_path
+):
+    """Hacker News cannot be automated, so the config may not claim it."""
+    broken = tmp_path / "config"
+    broken.mkdir()
+    (broken / "channels.yml").write_text(
+        "channels:\n"
+        "  hackernews:\n"
+        "    enabled: true\n"
+        "    mode: automatic\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config.paths, "CONFIG_DIR", broken)
+
+    with pytest.raises(config.ConfigError, match="read-only"):
+        config.load_channels()
+
+
+def test_automatic_needs_a_target_where_the_platform_has_places(
+    monkeypatch, tmp_path
+):
     broken = tmp_path / "config"
     broken.mkdir()
     (broken / "channels.yml").write_text(
@@ -31,8 +52,24 @@ def test_external_channels_must_not_be_automatic(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(config.paths, "CONFIG_DIR", broken)
 
-    with pytest.raises(config.ConfigError, match="must not be 'automatic'"):
+    with pytest.raises(config.ConfigError, match="needs 'targets'"):
         config.load_channels()
+
+
+def test_automatic_with_a_publisher_and_a_target_loads(monkeypatch, tmp_path):
+    ok = tmp_path / "config"
+    ok.mkdir()
+    (ok / "channels.yml").write_text(
+        "channels:\n"
+        "  reddit:\n"
+        "    enabled: true\n"
+        "    mode: automatic\n"
+        "    targets: ['netsec']\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config.paths, "CONFIG_DIR", ok)
+
+    assert config.channel_mode("reddit", config.load_channels()) == "automatic"
 
 
 def test_unknown_publish_mode_is_rejected(monkeypatch, tmp_path):
@@ -152,7 +189,7 @@ def test_channel_mode_returns_none_for_disabled_channels():
 
 
 def test_channel_mode_reads_the_repository_configuration():
-    assert config.channel_mode("reddit") == "draft_only"
+    assert config.channel_mode("hackernews") == "draft_only"
     assert config.channel_mode("website") == "automatic"
 
 

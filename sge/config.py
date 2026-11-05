@@ -11,7 +11,7 @@ from pathlib import Path
 
 import yaml
 
-from . import paths
+from . import paths, publishers
 
 PUBLISH_MODES = ("automatic", "draft_only", "manual")
 EXTERNAL_CHANNELS = ("reddit", "hackernews", "linkedin", "x", "telegram")
@@ -94,11 +94,41 @@ def load_channels():
                 f"{where}: mode must be one of {', '.join(PUBLISH_MODES)}"
             )
 
-        # The plan's core rule: no automatic posting to other people's
-        # communities, whatever the rest of the configuration says.
+        # An external channel may post by itself only where code to
+        # post with exists. The owner of the project decides whether to
+        # switch one on; this rule only keeps the configuration from
+        # promising an automation that no publisher backs.
         if name in EXTERNAL_CHANNELS and mode == "automatic":
+            if name in publishers.NO_AUTOMATION:
+                raise ConfigError(
+                    f"{where}: cannot be 'automatic' — "
+                    f"{publishers.NO_AUTOMATION[name]}"
+                )
+
+            if not publishers.has_publisher(name):
+                raise ConfigError(
+                    f"{where}: no publisher exists for this channel, so "
+                    f"'automatic' would fail at posting time"
+                )
+
+        # Where a platform posts into a place of its own — a subreddit —
+        # the place has to be named, or an automatic run has nowhere to
+        # put the post.
+        targets = channel.get("targets")
+
+        if targets is not None:
+            if (not isinstance(targets, list) or not targets
+                    or not all(isinstance(value, str) and value
+                               for value in targets)):
+                raise ConfigError(
+                    f"{where}:targets: must be a list of non-empty strings"
+                )
+
+        if (mode == "automatic" and publishers.needs_target(name)
+                and not targets):
             raise ConfigError(
-                f"{where}: external channels must not be 'automatic'"
+                f"{where}: mode 'automatic' needs 'targets' for this "
+                f"platform"
             )
 
     return data
